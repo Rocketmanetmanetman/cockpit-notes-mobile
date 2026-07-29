@@ -63,6 +63,15 @@ body {
   opacity: 0.75;
 }
 
+/* Version réellement servie : discrète, mais toujours là — c'est le seul moyen, depuis le
+   téléphone, de savoir si une mise à jour est bien arrivée. */
+.version {
+  float: right;
+  margin-top: 10px;
+  font-size: 13px;
+  opacity: 0.5;
+}
+
 .compteur-actif {
   opacity: 1;
   font-weight: 600;

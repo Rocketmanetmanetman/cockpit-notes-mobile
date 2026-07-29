@@ -48,6 +48,11 @@
     // Renvoyer ne modifie RIEN (les notes sont déjà envoyées, le PC dédoublonne par UUID) :
     // c'est une opération sans confirmation, qui ne fait que produire un fichier.
     selection: null,
+    // Version affichée, LUE du nom du cache du service worker (`cockpit-notes-vN`) : elle
+    // est donc toujours exacte, sans constante à tenir à jour. Sans elle, impossible de
+    // savoir depuis le téléphone si une mise à jour est bien arrivée — le service worker
+    // pouvant resservir l'ancienne version sans le dire.
+    version: null,
     message: null,
     minuteurMessage: null,
   };
@@ -88,6 +93,7 @@
       '<span class="compteur' + (attente > 0 ? ' compteur-actif' : '') + '">' +
       (attente === 0 ? 'Tout est envoyé' : attente === 1 ? '1 note à envoyer' : attente + ' notes à envoyer') +
       '</span>' +
+      (S.version ? '<span class="version">' + ech(S.version) + '</span>' : '') +
       '</header>'
     );
   }
@@ -218,6 +224,11 @@
       (attente.length === 0 ? ' disabled' : '') + '>' +
       (attente.length === 0 ? 'Rien à envoyer' : 'Envoyer ' + attente.length + (attente.length === 1 ? ' note' : ' notes')) +
       '</button>' +
+      // Les trois outils de renvoi vivent ENSEMBLE, ici : les chercher au fond d'une autre
+      // section ne se devine pas (le renvoi sélectif y était, invisible, tout en bas).
+      '<button type="button" class="bouton bouton-doux" data-action="selection-ouvrir"' +
+      (S.notes.some(function (n) { return n.envoyee; }) ? '' : ' disabled') +
+      '>Choisir des notes à renvoyer</button>' +
       '<button type="button" class="bouton bouton-doux" data-action="tout-renvoyer"' +
       (S.notes.length === 0 ? ' disabled' : '') + '>Tout renvoyer (réparation)</button>' +
       (S.dernierLot
@@ -820,7 +831,12 @@
       render();
     } else if (action === 'selection-ouvrir') {
       S.selection = {};
+      S.ecran = 'file';
       render();
+      // Les cases sont dans la liste « Envoyées », plus bas : on y emmène Julien, sinon le
+      // bouton semble n'avoir rien fait.
+      var liste = document.querySelector('.note-choix');
+      if (liste) liste.scrollIntoView({ block: 'center' });
     } else if (action === 'selection-fermer') {
       S.selection = null;
       render();
@@ -924,8 +940,29 @@
       signaler('Stockage local indisponible : ' + String(e.message || e));
     });
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(function () {});
+      navigator.serviceWorker.register('./sw.js').then(lireVersion).catch(function () {});
+      // Le cache n'existe pas encore au moment où `register` résout : on relit un peu
+      // plus tard, et à chaque prise de contrôle par un nouveau service worker.
+      navigator.serviceWorker.addEventListener('controllerchange', lireVersion);
+      setTimeout(lireVersion, 1500);
     }
+    lireVersion();
+  }
+
+  // Version réellement servie, déduite du nom du cache du service worker.
+  function lireVersion() {
+    if (!global.caches) return Promise.resolve();
+    return caches
+      .keys()
+      .then(function (cles) {
+        var trouve = cles.filter(function (k) { return k.indexOf('cockpit-notes-v') === 0; })[0];
+        var v = trouve ? trouve.replace('cockpit-notes-', '') : null;
+        if (v && v !== S.version) {
+          S.version = v;
+          render();
+        }
+      })
+      .catch(function () {});
   }
 
   global.CockpitNotes = { demarrer: demarrer, _etat: S };
