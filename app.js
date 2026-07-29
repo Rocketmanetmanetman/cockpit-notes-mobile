@@ -702,20 +702,50 @@
   function chargerFichierReferentiel(fichier) {
     var lecteur = new FileReader();
     lecteur.onload = function () {
-      var resultat = Core.parseReferentiel(String(lecteur.result));
+      var texte = String(lecteur.result);
+      var resultat = Core.parseReferentiel(texte);
       if (!resultat.ok) {
         signaler(resultat.erreur);
         return;
       }
-      Store.enregistrerReferentiel(resultat.genre, String(lecteur.result))
-        .then(charger)
-        .then(function () {
-          signaler(
-            (resultat.genre === 'projets' ? 'Projets' : 'Backlogs') +
-            ' mis à jour (' + Core.horodatageFr(resultat.genere_le) + ').',
-          );
-        })
-        .catch(function (e) { signaler(String(e.message || e)); });
+      var nom = resultat.genre === 'projets' ? 'Projets' : 'Backlogs';
+      var actuel = resultat.genre === 'projets' ? S.projetsGenereLe : S.backlogsGenereLe;
+
+      var appliquer = function () {
+        Store.enregistrerReferentiel(resultat.genre, texte)
+          .then(charger)
+          .then(function () {
+            signaler(nom + ' mis à jour — instantané du ' + Core.horodatageFr(resultat.genere_le) + '.');
+          })
+          .catch(function (e) { signaler(String(e.message || e)); });
+      };
+
+      // **Garde-fou du transport.** Google Drive sert parfois, sur le téléphone, une copie
+      // en CACHE du fichier : on rechargeait alors un instantané plus ancien que celui déjà
+      // en place, silencieusement, et l'écran semblait « ne pas se mettre à jour ». Les
+      // horodatages `AAAA-MM-JJ HH:MM:SS` se comparent directement comme des chaînes.
+      if (actuel && resultat.genere_le < actuel) {
+        S.confirmation = {
+          titre: 'Ce fichier est plus ANCIEN',
+          texte:
+            'Le fichier choisi date du ' + Core.horodatageFr(resultat.genere_le) +
+            ', alors que tu as déjà chargé celui du ' + Core.horodatageFr(actuel) + '. ' +
+            "Google Drive t'a probablement donné une copie en cache : ouvre-le dans " +
+            "l'application Drive, télécharge-le, puis reprends-le dans Téléchargements.",
+          libelle: 'Charger quand même',
+          action: appliquer,
+        };
+        render();
+        return;
+      }
+      if (actuel && resultat.genere_le === actuel) {
+        signaler(
+          nom + ' : ce fichier est IDENTIQUE à celui déjà chargé (' +
+          Core.horodatageFr(actuel) + '). Drive t\'a redonné la même copie — rien n\'a changé.',
+        );
+        return;
+      }
+      appliquer();
     };
     lecteur.onerror = function () { signaler('Lecture du fichier impossible.'); };
     lecteur.readAsText(fichier);
