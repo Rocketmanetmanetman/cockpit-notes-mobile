@@ -113,16 +113,26 @@
       '<button type="button" class="pastille pastille-sans' + (S.cible === null ? ' pastille-active' : '') +
       '" data-action="projet" data-cle="" data-nom="">Sans projet</button>';
 
+    // Sans référentiel, le message explique ET propose l'import sur place (§5.2) : aller
+    // le chercher au fond d'un autre onglet ne se devine pas. Écrire reste possible —
+    // on ne bloque jamais la prise de note.
     var avertissement = S.projets.length === 0
-      ? '<p class="avertissement">Aucun projet chargé : les notes partiront <strong>sans projet</strong>. ' +
-        'Charge <code>projets.json</code> depuis l\'onglet File pour pouvoir les rattacher. ' +
-        'Écrire reste possible — on ne bloque jamais la prise de note.</p>'
+      ? '<div class="avertissement">' +
+        '<p class="avertissement-texte">Aucun projet chargé : les notes partiront ' +
+        '<strong>sans projet</strong>. Charge <code>projets.json</code> pour pouvoir les rattacher — ' +
+        'écrire reste possible sans lui.</p>' +
+        '<button type="button" class="bouton bouton-fort" data-action="importer-ref">' +
+        'Charger projets.json</button>' +
+        '</div>'
       : '';
 
     return (
       '<section class="bloc">' +
       '<h2 class="titre-bloc">' + (enEdition ? 'Modifier la note' : 'Nouvelle note') + '</h2>' +
-      '<textarea class="saisie" id="saisie" placeholder="Écris ta note…" rows="9">' + ech(S.texte) + '</textarea>' +
+      // 7 lignes : de quoi écrire largement, tout en laissant le choix du projet (et, au
+      // premier lancement, le bouton d'import) atteignable sans faire défiler l'écran.
+      // Le champ reste redimensionnable à la main (`resize: vertical`).
+      '<textarea class="saisie" id="saisie" placeholder="Écris ta note…" rows="7">' + ech(S.texte) + '</textarea>' +
       '<div class="rangee-outils">' +
       '<button type="button" class="bouton bouton-doux" data-action="separateur">— Séparateur</button>' +
       '</div>' +
@@ -188,6 +198,22 @@
       (S.notes.length === 0 ? ' disabled' : '') + '>Tout renvoyer (réparation)</button>' +
       '</section>' +
 
+      // Les deux sens du transport se suivent : ce qui part, puis ce qui arrive. La file
+      // (historique) vient APRÈS — sans quoi, à la première utilisation, l'import se
+      // retrouve enterré sous deux listes vides, hors de l'écran.
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">Fichiers reçus du PC</h2>' +
+      '<p class="indicateur">Projets : ' +
+      (S.projetsGenereLe ? 'à jour du ' + Core.horodatageFr(S.projetsGenereLe) : '<strong>jamais reçus</strong>') + '</p>' +
+      '<p class="indicateur">Backlogs : ' +
+      (S.backlogsGenereLe ? 'à jour du ' + Core.horodatageFr(S.backlogsGenereLe) : '<strong>jamais reçus</strong>') + '</p>' +
+      '<button type="button" class="bouton ' +
+      (S.projets.length === 0 ? 'bouton-fort' : 'bouton-doux') +
+      '" data-action="importer-ref">Charger un fichier du PC</button>' +
+      '<p class="explication">Le fichier est reconnu tout seul : <code>projets.json</code> ou ' +
+      '<code>backlogs.json</code>.</p>' +
+      '</section>' +
+
       '<section class="bloc">' +
       '<h2 class="titre-bloc">À envoyer' + (attente.length ? ' · ' + attente.length : '') + '</h2>' +
       (attente.length === 0
@@ -200,17 +226,6 @@
       (envoyees.length === 0
         ? '<p class="explication">Aucune note envoyée pour l\'instant.</p>'
         : envoyees.map(carte).join('')) +
-      '</section>' +
-
-      '<section class="bloc">' +
-      '<h2 class="titre-bloc">Fichiers reçus du PC</h2>' +
-      '<p class="indicateur">Projets : ' +
-      (S.projetsGenereLe ? 'à jour du ' + Core.horodatageFr(S.projetsGenereLe) : 'jamais reçus') + '</p>' +
-      '<p class="indicateur">Backlogs : ' +
-      (S.backlogsGenereLe ? 'à jour du ' + Core.horodatageFr(S.backlogsGenereLe) : 'jamais reçus') + '</p>' +
-      '<button type="button" class="bouton bouton-doux" data-action="importer-ref">Charger un fichier du PC</button>' +
-      '<p class="explication">Le fichier est reconnu tout seul : <code>projets.json</code> ou ' +
-      '<code>backlogs.json</code>.</p>' +
       '</section>'
     );
   }
