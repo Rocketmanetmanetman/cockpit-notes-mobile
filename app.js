@@ -28,6 +28,9 @@
     projetsGenereLe: '',
     backlogs: [],
     backlogsGenereLe: '',
+    // Colonne RDV GLOBALE : les RDV de tous les projets, montrés dans le Backlog de
+    // chacun — miroir du Cockpit (SPEC 08 §6).
+    backlogsRdv: [],
     backlogProjet: null,
     colonneOuverte: null,
     ticket: null,
@@ -391,12 +394,17 @@
       (projet.colonnes || [])
         .map(function (colonne, index) {
           var ouverte = S.colonneOuverte === index;
-          var tickets = colonne.tickets || [];
+          // **Colonne RDV : miroir GLOBAL.** Comme au Cockpit, elle montre les RDV de TOUS
+          // les projets, pas seulement ceux du projet ouvert. On retombe sur la colonne
+          // propre au projet si l'instantané est plus ancien que ce champ.
+          var globale = colonne.systeme === true && S.backlogsRdv.length > 0;
+          var tickets = globale ? S.backlogsRdv : colonne.tickets || [];
           return (
             '<div class="colonne">' +
             '<button type="button" class="colonne-entete" data-action="backlog-colonne" data-index="' + index + '"' +
             ' style="--teinte:' + ech(colonne.couleur || '#8A8F94') + '">' +
-            '<span class="colonne-nom">' + ech(colonne.libelle) + '</span>' +
+            '<span class="colonne-nom">' + ech(colonne.libelle) +
+            (globale ? ' <span class="colonne-portee">tous projets</span>' : '') + '</span>' +
             '<span class="colonne-compte">' + tickets.length + '</span>' +
             '<span class="colonne-fleche">' + (ouverte ? '▾' : '▸') + '</span>' +
             '</button>' +
@@ -406,11 +414,22 @@
                   ? '<p class="explication">Colonne vide.</p>'
                   : tickets
                       .map(function (t, i) {
+                        var etranger = globale && t.projet && t.projet.cle !== projet.cle;
                         return (
-                          '<button type="button" class="ticket" data-action="backlog-ticket"' +
-                          ' data-colonne="' + index + '" data-index="' + i + '">' +
+                          '<button type="button" class="ticket' +
+                          (etranger ? ' ticket-etranger' : '') +
+                          (t.honore ? ' ticket-honore' : '') +
+                          '" data-action="backlog-ticket"' +
+                          ' data-colonne="' + index + '" data-index="' + i + '"' +
+                          (globale ? ' data-global="1"' : '') +
+                          (etranger ? ' style="--teinte:' + ech(t.projet.couleur || '#8A8F94') + '"' : '') +
+                          '>' +
                           '<span class="ticket-titre">' + ech(t.titre) + '</span>' +
                           '<span class="ticket-bas">' +
+                          (etranger
+                            ? '<span class="ticket-projet">' + ech(t.projet.nom) + '</span>'
+                            : '') +
+                          (t.honore ? '<span class="ticket-fait">✓ fait</span>' : '') +
                           (t.prioritaire_home ? '<span class="marque-prioritaire">Prioritaire Home</span>' : '') +
                           (t.date_valeur ? '<span class="ticket-date">' + ech(dateTicket(t)) + '</span>' : '') +
                           '</span>' +
@@ -469,8 +488,10 @@
       sortie +=
         '<div class="calque" data-action="fermer-ticket">' +
         '<div class="feuille" data-stop="1">' +
-        '<p class="ticket-colonne">' + ech(S.ticket.colonne) + '</p>' +
+        '<p class="ticket-colonne">' + ech(S.ticket.colonne) +
+        (S.ticket.projet ? ' · ' + ech(S.ticket.projet.nom) : '') + '</p>' +
         '<h3 class="ticket-detail-titre">' + ech(S.ticket.titre) + '</h3>' +
+        (S.ticket.honore ? '<p class="ticket-fait">✓ déjà fait</p>' : '') +
         (S.ticket.date_valeur ? '<p class="ticket-detail-date">' + ech(dateTicket(S.ticket)) + '</p>' : '') +
         (S.ticket.prioritaire_home ? '<p class="marque-prioritaire">Prioritaire Home</p>' : '') +
         (S.ticket.description
@@ -720,6 +741,7 @@
       if (backlogs && backlogs.ok) {
         S.backlogs = backlogs.projets;
         S.backlogsGenereLe = backlogs.genere_le;
+        S.backlogsRdv = backlogs.rdv;
       }
       // Une cible qui a disparu du référentiel repasse « Sans projet » : le téléphone ne
       // propose jamais une cible qu'il ne connaît plus.
@@ -905,7 +927,11 @@
       var projet = S.backlogs.filter(function (p) { return p.cle === S.backlogProjet; })[0];
       if (!projet) return;
       var colonne = projet.colonnes[Number(el.dataset.colonne)];
-      var ticket = colonne.tickets[Number(el.dataset.index)];
+      // La colonne RDV globale ne puise pas dans le projet ouvert mais dans la liste
+      // commune : l'index s'y rapporte.
+      var source = el.dataset.global ? S.backlogsRdv : colonne.tickets;
+      var ticket = source[Number(el.dataset.index)];
+      if (!ticket) return;
       S.ticket = Object.assign({}, ticket, { colonne: colonne.libelle });
       render();
     } else if (action === 'fermer-ticket') {

@@ -180,6 +180,10 @@
       genre: genre,
       genere_le: brut.genere_le || '',
       projets: liste,
+      // Colonne RDV **globale** (backlogs uniquement) : tous les RDV de tous les projets
+      // actifs, comme au Cockpit. Champ additif — un instantané plus ancien n'en a pas, et
+      // l'écran retombe alors sur la colonne RDV propre à chaque projet.
+      rdv: Array.isArray(brut.rdv) ? brut.rdv : [],
     };
   }
 

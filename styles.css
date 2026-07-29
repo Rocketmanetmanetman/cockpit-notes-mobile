@@ -563,6 +563,40 @@ code {
   color: rgba(38, 40, 42, 0.55);
 }
 
+/* Colonne RDV globale : les cartes d'un AUTRE projet portent son nom et sa couleur, comme
+   les cartes étrangères du Kanban du Cockpit. */
+.colonne-portee {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: rgba(38, 40, 42, 0.45);
+}
+
+.ticket-etranger {
+  border-left: 6px solid var(--teinte, #8a8f94);
+}
+
+.ticket-projet {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ardoise);
+  background: color-mix(in srgb, var(--teinte, #8a8f94) 18%, #ffffff);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+/* Un RDV honoré reste dans la colonne RDV, mais s'efface visuellement. */
+.ticket-honore .ticket-titre {
+  color: rgba(38, 40, 42, 0.55);
+}
+
+.ticket-fait {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sauge);
+}
+
 /* La marque « prioritaire Home », visible (D15). */
 .marque-prioritaire {
   display: inline-block;
