@@ -114,8 +114,11 @@
       '" data-action="projet" data-cle="" data-nom="">Sans projet</button>';
 
     // Sans référentiel, le message explique ET propose l'import sur place (§5.2) : aller
-    // le chercher au fond d'un autre onglet ne se devine pas. Écrire reste possible —
-    // on ne bloque jamais la prise de note.
+    // le chercher au fond d'un autre onglet ne se devine pas. Il est rendu EN TÊTE de
+    // l'écran, sans quoi il tombe sous la ligne de flottaison du téléphone au moment
+    // précis où il est utile — au tout premier lancement. Il disparaît dès qu'un
+    // référentiel est chargé, et l'écran reprend alors son ordre normal.
+    // Écrire reste possible sans projet : on ne bloque jamais la prise de note.
     var avertissement = S.projets.length === 0
       ? '<div class="avertissement">' +
         '<p class="avertissement-texte">Aucun projet chargé : les notes partiront ' +
@@ -127,6 +130,8 @@
       : '';
 
     return (
+      (avertissement === '' ? '' : '<section class="bloc">' + avertissement + '</section>') +
+
       '<section class="bloc">' +
       '<h2 class="titre-bloc">' + (enEdition ? 'Modifier la note' : 'Nouvelle note') + '</h2>' +
       // 7 lignes : de quoi écrire largement, tout en laissant le choix du projet (et, au
@@ -140,7 +145,6 @@
 
       '<section class="bloc">' +
       '<h2 class="titre-bloc">Projet</h2>' +
-      avertissement +
       '<div class="pastilles">' + sansProjet + pastilles + '</div>' +
       '</section>' +
 
