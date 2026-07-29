@@ -40,6 +40,10 @@
     depot: null,
     // Dernier lot fabriqué, conservé pour pouvoir le retélécharger sans rien renvoyer.
     dernierLot: null,
+    // « Envoyées » est repliée par défaut : la liste ne cesse de grandir (rien n'est jamais
+    // purgé) et deviendrait un mur. **Repli d'AFFICHAGE seulement** — aucune note n'est
+    // supprimée, « Tout renvoyer » continue de porter tout l'historique.
+    toutAfficherEnvoyees: false,
     message: null,
     minuteurMessage: null,
   };
@@ -242,8 +246,37 @@
       '<h2 class="titre-bloc">Envoyées' + (envoyees.length ? ' · ' + envoyees.length : '') + '</h2>' +
       (envoyees.length === 0
         ? '<p class="explication">Aucune note envoyée pour l\'instant.</p>'
-        : envoyees.map(carte).join('')) +
+        : blocEnvoyees(envoyees, carte)) +
       '</section>'
+    );
+  }
+
+  // Combien de notes envoyées sont montrées avant repli. Les autres sont TOUJOURS là —
+  // seulement masquées : elles restent dans la base locale et dans « Tout renvoyer ».
+  var ENVOYEES_VISIBLES = 20;
+
+  // `carte` est passée en argument : elle est déclarée DANS `ecranFile`, donc invisible ici.
+  function blocEnvoyees(envoyees, carte) {
+    // `listerNotes` trie du plus récent au plus ancien : la tranche montre bien les dernières.
+    var replie = !S.toutAfficherEnvoyees && envoyees.length > ENVOYEES_VISIBLES;
+    var montrees = replie ? envoyees.slice(0, ENVOYEES_VISIBLES) : envoyees;
+    var bascule = '';
+    if (envoyees.length > ENVOYEES_VISIBLES) {
+      bascule =
+        '<button type="button" class="bouton bouton-doux" data-action="bascule-envoyees">' +
+        (replie
+          ? 'Tout afficher (' + envoyees.length + ')'
+          : 'Ne montrer que les ' + ENVOYEES_VISIBLES + ' dernières') +
+        '</button>';
+    }
+    return (
+      (replie
+        ? '<p class="explication">Les ' + ENVOYEES_VISIBLES + ' plus récentes. Les ' +
+          (envoyees.length - ENVOYEES_VISIBLES) + ' autres sont conservées — rien n\'est jamais ' +
+          'supprimé du téléphone.</p>'
+        : '') +
+      montrees.map(carte).join('') +
+      bascule
     );
   }
 
@@ -742,6 +775,9 @@
     } else if (action === 'depot-fait') {
       S.depot = null;
       render();
+    } else if (action === 'bascule-envoyees') {
+      S.toutAfficherEnvoyees = !S.toutAfficherEnvoyees;
+      render();
     } else if (action === 'importer-ref') {
       document.getElementById('fichier-ref').click();
     } else if (action === 'confirmer') {
@@ -780,6 +816,17 @@
   }
 
   function demarrer() {
+    // Un rendu qui lève laisse l'écran PRÉCÉDENT en place, sans un mot : sur un téléphone,
+    // sans console, cela se voit comme « je clique et il ne se passe rien ». On rend donc
+    // toute erreur non rattrapée VISIBLE — c'est le seul canal de diagnostic ici.
+    window.addEventListener('error', function (e) {
+      var detail = e && e.message ? e.message : 'erreur inconnue';
+      signaler('Anomalie de l\'application : ' + detail);
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e && e.reason;
+      signaler('Anomalie de l\'application : ' + ((r && r.message) || String(r)));
+    });
     racine().addEventListener('click', surClic);
     racine().addEventListener('input', function (e) {
       if (e.target && e.target.id === 'saisie') S.texte = e.target.value;
