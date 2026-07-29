@@ -351,6 +351,42 @@ code {
   margin-top: 12px;
 }
 
+/* Sélection des notes à renvoyer : cible large (toute la ligne est cliquable) et case
+   assez grosse pour le pouce. */
+.note-choix {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ardoise);
+  cursor: pointer;
+}
+
+.note-choix input {
+  width: 26px;
+  height: 26px;
+  accent-color: var(--sauge);
+  flex-shrink: 0;
+}
+
+.note-choisie {
+  border-color: var(--sauge);
+  border-style: solid;
+  background: rgba(124, 155, 134, 0.12);
+}
+
+.barre-selection {
+  position: sticky;
+  bottom: 0;
+  background: var(--papier);
+  padding-top: 10px;
+  margin-top: 4px;
+  box-shadow: 0 -8px 12px -8px rgba(38, 40, 42, 0.25);
+}
+
 .note-actions .bouton {
   margin-top: 0;
   padding: 13px 16px;

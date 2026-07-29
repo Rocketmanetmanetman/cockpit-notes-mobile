@@ -44,6 +44,10 @@
     // purgé) et deviendrait un mur. **Repli d'AFFICHAGE seulement** — aucune note n'est
     // supprimée, « Tout renvoyer » continue de porter tout l'historique.
     toutAfficherEnvoyees: false,
+    // Sélection de notes à renvoyer : `null` = mode inactif, sinon une table uuid → true.
+    // Renvoyer ne modifie RIEN (les notes sont déjà envoyées, le PC dédoublonne par UUID) :
+    // c'est une opération sans confirmation, qui ne fait que produire un fichier.
+    selection: null,
     message: null,
     minuteurMessage: null,
   };
@@ -180,21 +184,26 @@
     var attente = S.notes.filter(function (n) { return !n.envoyee; });
     var envoyees = S.notes.filter(function (n) { return n.envoyee; });
 
-    function carte(n) {
+    // `avecCase` : en mode sélection, la carte porte une case « Renvoyer celle-ci ».
+    function carte(n, avecCase) {
+      var cochee = S.selection && S.selection[n.uuid];
       return (
-        '<article class="note' + (n.envoyee ? ' note-figee' : '') + '">' +
+        '<article class="note' + (n.envoyee ? ' note-figee' : '') + (cochee ? ' note-choisie' : '') + '">' +
         '<div class="note-haut">' +
         '<span class="note-date">' + Core.dateFr(n.date) + '</span>' +
         '<span class="note-cible">' + ech(n.cible_nom || 'Sans projet') + '</span>' +
         '</div>' +
         '<p class="note-titre">' + ech(Core.titreNote(n.texte)) + '</p>' +
         (Core.apercuNote(n.texte) ? '<p class="note-apercu">' + ech(Core.apercuNote(n.texte)) + '</p>' : '') +
-        (n.envoyee
-          ? '<p class="note-etat">Envoyée le ' + Core.horodatageFr(n.envoye_le) + ' — figée</p>'
-          : '<div class="note-actions">' +
-            '<button type="button" class="bouton bouton-doux" data-action="editer" data-uuid="' + ech(n.uuid) + '">Modifier</button>' +
-            '<button type="button" class="bouton bouton-danger" data-action="supprimer" data-uuid="' + ech(n.uuid) + '">Supprimer</button>' +
-            '</div>') +
+        (avecCase
+          ? '<label class="note-choix"><input type="checkbox" data-action="choisir" data-uuid="' +
+            ech(n.uuid) + '"' + (cochee ? ' checked' : '') + '> Renvoyer celle-ci</label>'
+          : n.envoyee
+            ? '<p class="note-etat">Envoyée le ' + Core.horodatageFr(n.envoye_le) + ' — figée</p>'
+            : '<div class="note-actions">' +
+              '<button type="button" class="bouton bouton-doux" data-action="editer" data-uuid="' + ech(n.uuid) + '">Modifier</button>' +
+              '<button type="button" class="bouton bouton-danger" data-action="supprimer" data-uuid="' + ech(n.uuid) + '">Supprimer</button>' +
+              '</div>') +
         '</article>'
       );
     }
@@ -257,26 +266,57 @@
 
   // `carte` est passée en argument : elle est déclarée DANS `ecranFile`, donc invisible ici.
   function blocEnvoyees(envoyees, carte) {
+    var enSelection = S.selection !== null;
+    // En mode sélection, la liste est DÉPLIÉE : on ne coche bien que ce qu'on voit.
+    var replie = !S.toutAfficherEnvoyees && !enSelection && envoyees.length > ENVOYEES_VISIBLES;
     // `listerNotes` trie du plus récent au plus ancien : la tranche montre bien les dernières.
-    var replie = !S.toutAfficherEnvoyees && envoyees.length > ENVOYEES_VISIBLES;
     var montrees = replie ? envoyees.slice(0, ENVOYEES_VISIBLES) : envoyees;
-    var bascule = '';
-    if (envoyees.length > ENVOYEES_VISIBLES) {
-      bascule =
+    var nbChoisies = enSelection
+      ? envoyees.filter(function (n) { return S.selection[n.uuid]; }).length
+      : 0;
+
+    var pied;
+    if (enSelection) {
+      pied =
+        '<div class="barre-selection">' +
+        '<button type="button" class="bouton bouton-fort" data-action="renvoyer-selection"' +
+        (nbChoisies === 0 ? ' disabled' : '') + '>' +
+        (nbChoisies === 0 ? 'Coche des notes' : 'Renvoyer ' + nbChoisies + (nbChoisies === 1 ? ' note' : ' notes')) +
+        '</button>' +
+        '<button type="button" class="bouton bouton-doux" data-action="selection-tout">' +
+        (nbChoisies === envoyees.length ? 'Tout décocher' : 'Tout cocher (' + envoyees.length + ')') +
+        '</button>' +
+        '<button type="button" class="bouton bouton-doux" data-action="selection-fermer">Annuler</button>' +
+        '</div>';
+    } else if (envoyees.length > ENVOYEES_VISIBLES) {
+      pied =
         '<button type="button" class="bouton bouton-doux" data-action="bascule-envoyees">' +
         (replie
           ? 'Tout afficher (' + envoyees.length + ')'
           : 'Ne montrer que les ' + ENVOYEES_VISIBLES + ' dernières') +
         '</button>';
+    } else {
+      pied = '';
     }
+
     return (
+      (enSelection
+        ? '<p class="explication">Coche les notes à renvoyer au PC. Elles ne seront ni modifiées ' +
+          'ni dupliquées : le PC reconnaît celles qu\'il a déjà.</p>'
+        : '') +
       (replie
         ? '<p class="explication">Les ' + ENVOYEES_VISIBLES + ' plus récentes. Les ' +
           (envoyees.length - ENVOYEES_VISIBLES) + ' autres sont conservées — rien n\'est jamais ' +
           'supprimé du téléphone.</p>'
         : '') +
-      montrees.map(carte).join('') +
-      bascule
+      (!enSelection && envoyees.length > 0
+        ? '<button type="button" class="bouton bouton-doux" data-action="selection-ouvrir">' +
+          'Choisir des notes à renvoyer</button>'
+        : '') +
+      montrees
+        .map(function (n) { return carte(n, enSelection); })
+        .join('') +
+      pied
     );
   }
 
@@ -777,6 +817,49 @@
       render();
     } else if (action === 'bascule-envoyees') {
       S.toutAfficherEnvoyees = !S.toutAfficherEnvoyees;
+      render();
+    } else if (action === 'selection-ouvrir') {
+      S.selection = {};
+      render();
+    } else if (action === 'selection-fermer') {
+      S.selection = null;
+      render();
+    } else if (action === 'choisir') {
+      var u = el.dataset.uuid;
+      if (S.selection[u]) delete S.selection[u];
+      else S.selection[u] = true;
+      render();
+    } else if (action === 'selection-tout') {
+      var envoyees = S.notes.filter(function (n) { return n.envoyee; });
+      var toutesCochees = envoyees.every(function (n) { return S.selection[n.uuid]; });
+      S.selection = {};
+      if (!toutesCochees) {
+        envoyees.forEach(function (n) { S.selection[n.uuid] = true; });
+      }
+      render();
+    } else if (action === 'renvoyer-selection') {
+      // Tout est déjà en mémoire : le lot se construit et se télécharge SYNCHRONIQUEMENT,
+      // dans le geste. Aucune écriture : ces notes sont déjà envoyées, on ne fait que
+      // refabriquer un fichier pour le PC, qui dédoublonne par UUID.
+      var choisies = S.notes
+        .filter(function (n) { return n.envoyee && S.selection && S.selection[n.uuid]; })
+        .sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+      if (choisies.length === 0) {
+        signaler('Coche au moins une note.');
+        return;
+      }
+      var quand = new Date();
+      var idLot = Core.uuid();
+      var nomLot = Core.lotFilename(idLot, quand);
+      var jsonLot = Core.lotJson(Core.buildLot(choisies, idLot, Core.horodatage(quand)));
+      if (!telecharger(nomLot, jsonLot)) {
+        signaler("Le téléchargement n'a pas démarré. Réessaie.");
+        return;
+      }
+      S.dernierLot = { nom: nomLot, json: jsonLot, envoye_le: Core.horodatage(quand), nb: choisies.length };
+      Store.enregistrerDernierLot(S.dernierLot).catch(function () {});
+      S.selection = null;
+      S.depot = { nom: nomLot, nb: choisies.length };
       render();
     } else if (action === 'importer-ref') {
       document.getElementById('fichier-ref').click();
