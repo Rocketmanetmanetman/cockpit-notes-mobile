@@ -1,0 +1,637 @@
+/* styles.css — application mobile de notes du Cockpit.
+ *
+ * Deux exigences tenues ensemble :
+ *  - l'identité visuelle du Cockpit, constante partout (crème, ardoise, sauge, encre) ;
+ *  - la langue visuelle de l'application de budget (D18) : GROSSES séparations entre les
+ *    sujets, boutons LARGES et bien espacés, faciles à viser au pouce, textes GRANDS.
+ *
+ * Police système uniquement : aucune ressource distante ne peut manquer hors-ligne.
+ */
+
+:root {
+  --creme: #f3ede3;
+  --ardoise: #34505a;
+  --sauge: #7c9b86;
+  --encre: #26282a;
+  --brique: #a24b42;
+  --papier: #ffffff;
+  --trait: rgba(38, 40, 42, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--creme);
+  color: var(--encre);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 18px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+#app {
+  padding-bottom: 48px;
+}
+
+/* ---- En-tête et indicateur permanent ---- */
+
+.entete {
+  background: var(--ardoise);
+  color: var(--creme);
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) 20px 16px;
+}
+
+.marque {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+
+/* « X notes à envoyer » — visible en permanence, sur tous les écrans. */
+.compteur {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 16px;
+  opacity: 0.75;
+}
+
+.compteur-actif {
+  opacity: 1;
+  font-weight: 600;
+  background: rgba(243, 237, 227, 0.16);
+  border-radius: 999px;
+  padding: 4px 14px;
+}
+
+/* ---- Onglets : trois cibles larges ---- */
+
+.onglets {
+  display: flex;
+  background: var(--ardoise);
+  padding: 0 12px;
+  gap: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.onglet {
+  flex: 1;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  color: rgba(243, 237, 227, 0.7);
+  background: none;
+  border: none;
+  border-bottom: 4px solid transparent;
+  padding: 16px 4px;
+  cursor: pointer;
+}
+
+.onglet-actif {
+  color: var(--creme);
+  border-bottom-color: var(--sauge);
+}
+
+/* ---- Blocs : c'est la GROSSE séparation entre les sujets ---- */
+
+.contenu {
+  padding: 0 16px;
+}
+
+.bloc {
+  background: var(--papier);
+  border-radius: 18px;
+  padding: 20px 18px;
+  margin-top: 22px;
+  box-shadow: 0 2px 10px rgba(38, 40, 42, 0.06);
+}
+
+.titre-bloc {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: rgba(38, 40, 42, 0.55);
+}
+
+.titre-projet {
+  font-size: 22px;
+  letter-spacing: 0.5px;
+  text-transform: none;
+  color: var(--encre);
+  border-left: 6px solid var(--teinte);
+  padding-left: 12px;
+  margin-top: 16px;
+}
+
+.explication {
+  margin: 0 0 14px;
+  font-size: 16px;
+  color: rgba(38, 40, 42, 0.65);
+}
+
+.avertissement {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: rgba(194, 162, 75, 0.16);
+  border-radius: 12px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.92em;
+  background: rgba(52, 80, 90, 0.09);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* ---- Boutons : larges, bien espacés, faciles à viser au pouce ---- */
+
+.bouton {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  border: none;
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-top: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.bouton:first-child {
+  margin-top: 0;
+}
+
+.bouton-fort {
+  background: var(--sauge);
+  color: #ffffff;
+}
+
+.bouton-fort:disabled {
+  background: rgba(38, 40, 42, 0.14);
+  color: rgba(38, 40, 42, 0.45);
+}
+
+.bouton-doux {
+  background: rgba(52, 80, 90, 0.09);
+  color: var(--ardoise);
+}
+
+.bouton-doux:disabled {
+  color: rgba(38, 40, 42, 0.35);
+}
+
+.bouton-danger {
+  background: rgba(162, 75, 66, 0.12);
+  color: var(--brique);
+}
+
+.bouton-date {
+  font-size: 20px;
+}
+
+/* Le bloc d'envoi est visuellement à part : ce n'est pas le même geste qu'enregistrer. */
+.bloc-envoi {
+  background: var(--ardoise);
+  color: var(--creme);
+}
+
+.bloc-envoi .titre-bloc,
+.bloc-envoi .explication {
+  color: rgba(243, 237, 227, 0.72);
+}
+
+.bloc-envoi .bouton-doux {
+  background: rgba(243, 237, 227, 0.15);
+  color: var(--creme);
+}
+
+.bloc-envoi code {
+  background: rgba(243, 237, 227, 0.18);
+  color: var(--creme);
+}
+
+.bloc-action {
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* ---- Saisie ---- */
+
+.saisie {
+  width: 100%;
+  font: inherit;
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--encre);
+  background: rgba(52, 80, 90, 0.05);
+  border: 1px solid var(--trait);
+  border-radius: 14px;
+  padding: 14px;
+  resize: vertical;
+}
+
+.saisie:focus {
+  outline: 3px solid var(--sauge);
+  outline-offset: 1px;
+}
+
+.rangee-outils {
+  margin-top: 12px;
+}
+
+.rangee-outils .bouton {
+  margin-top: 0;
+}
+
+/* ---- Pastilles de projet ---- */
+
+.pastilles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pastille {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--encre);
+  background: color-mix(in srgb, var(--teinte, #8a8f94) 16%, #ffffff);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  padding: 12px 18px;
+  cursor: pointer;
+}
+
+.pastille-active {
+  border-color: var(--teinte, #8a8f94);
+  background: color-mix(in srgb, var(--teinte, #8a8f94) 30%, #ffffff);
+}
+
+.pastille-sans {
+  --teinte: #8a8f94;
+}
+
+/* ---- La file des notes ---- */
+
+.note {
+  border: 1px solid var(--trait);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.note:last-child {
+  margin-bottom: 0;
+}
+
+.note-figee {
+  background: rgba(38, 40, 42, 0.035);
+  border-style: dashed;
+}
+
+.note-haut {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  color: rgba(38, 40, 42, 0.5);
+}
+
+.note-cible {
+  font-weight: 600;
+  color: var(--ardoise);
+}
+
+.note-titre {
+  margin: 8px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.note-apercu {
+  margin: 4px 0 0;
+  font-size: 16px;
+  color: rgba(38, 40, 42, 0.62);
+}
+
+.note-etat {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: rgba(38, 40, 42, 0.45);
+}
+
+.note-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.note-actions .bouton {
+  margin-top: 0;
+  padding: 13px 16px;
+  font-size: 16px;
+}
+
+.indicateur {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--encre);
+}
+
+/* ---- Backlogs ---- */
+
+/* Avertissement de fraîcheur : bien en évidence, en tête de l'écran (D16). */
+.bandeau-fraicheur {
+  background: rgba(194, 162, 75, 0.2);
+  border: 2px solid rgba(194, 162, 75, 0.55);
+  border-radius: 18px;
+  padding: 18px;
+  margin: 22px 16px 0;
+}
+
+.bandeau-titre {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.bandeau-detail {
+  margin: 6px 0 14px;
+  font-size: 16px;
+  color: rgba(38, 40, 42, 0.68);
+}
+
+.ligne-projet {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  background: color-mix(in srgb, var(--teinte, #8a8f94) 12%, #ffffff);
+  border: none;
+  border-left: 6px solid var(--teinte, #8a8f94);
+  border-radius: 14px;
+  padding: 18px 16px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.ligne-projet:last-child {
+  margin-bottom: 0;
+}
+
+.ligne-projet-nom {
+  flex: 1;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.ligne-projet-compte {
+  font-size: 16px;
+  color: rgba(38, 40, 42, 0.5);
+}
+
+.colonne {
+  margin-bottom: 12px;
+}
+
+.colonne-entete {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  background: rgba(52, 80, 90, 0.06);
+  border: none;
+  border-left: 6px solid var(--teinte, #8a8f94);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.colonne-nom {
+  flex: 1;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.colonne-compte,
+.colonne-fleche {
+  font-size: 16px;
+  color: rgba(38, 40, 42, 0.5);
+}
+
+.colonne-tickets {
+  padding: 10px 0 0 10px;
+}
+
+.ticket {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  background: var(--papier);
+  border: 1px solid var(--trait);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.ticket-titre {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ticket-bas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ticket-date {
+  font-size: 14px;
+  color: rgba(38, 40, 42, 0.55);
+}
+
+/* La marque « prioritaire Home », visible (D15). */
+.marque-prioritaire {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: var(--sauge);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.ticket-colonne {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(38, 40, 42, 0.5);
+}
+
+.ticket-detail-titre {
+  margin: 8px 0 0;
+  font-size: 22px;
+  line-height: 1.35;
+}
+
+.ticket-detail-date {
+  margin: 8px 0 0;
+  font-size: 16px;
+  color: rgba(38, 40, 42, 0.6);
+}
+
+.ticket-detail-description {
+  margin: 14px 0;
+  font-size: 17px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+/* ---- Calques (calendrier, confirmation, détail) ---- */
+
+.calque {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(38, 40, 42, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* Une confirmation posée par-dessus un autre calque DOIT passer devant : sinon elle
+   s'ouvre derrière, invisible, et l'action n'est jamais validée (piège déjà rencontré). */
+.calque-devant {
+  z-index: 90;
+}
+
+.feuille {
+  width: 100%;
+  max-width: 520px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--creme);
+  border-radius: 20px;
+  padding: 22px 20px calc(env(safe-area-inset-bottom, 0px) + 20px);
+  box-shadow: 0 -6px 30px rgba(38, 40, 42, 0.3);
+}
+
+.feuille-titre {
+  margin: 0 0 10px;
+  font-size: 21px;
+}
+
+/* ---- Mini-calendrier maison (jamais le sélecteur système) ---- */
+
+.cal-entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.cal-titre {
+  font-size: 19px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.cal-fleche {
+  font: inherit;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--ardoise);
+  background: rgba(52, 80, 90, 0.09);
+  border: none;
+  border-radius: 12px;
+  width: 52px;
+  height: 52px;
+  cursor: pointer;
+}
+
+.cal-jours {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.cal-jour-nom {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(38, 40, 42, 0.45);
+  padding-bottom: 4px;
+}
+
+.cal-case {
+  font: inherit;
+  font-size: 17px;
+  aspect-ratio: 1;
+  color: var(--encre);
+  background: var(--papier);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.cal-hors {
+  color: rgba(38, 40, 42, 0.3);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.cal-choisie {
+  background: var(--sauge);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* ---- Message éphémère ---- */
+
+.message {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  z-index: 120;
+  background: var(--encre);
+  color: var(--creme);
+  border-radius: 14px;
+  padding: 16px 18px;
+  font-size: 16px;
+  line-height: 1.4;
+  box-shadow: 0 6px 24px rgba(38, 40, 42, 0.35);
+}

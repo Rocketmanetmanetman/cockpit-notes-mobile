@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- Feuille de note à l'encre sur crème, avec le trait de séparation du Cockpit. -->
+  <rect width="192" height="192" rx="42" fill="#F3EDE3" />
+  <rect x="42" y="30" width="108" height="132" rx="12" fill="#FFFFFF" stroke="#34505A" stroke-width="6" />
+  <line x1="62" y1="64" x2="130" y2="64" stroke="#26282A" stroke-width="7" stroke-linecap="round" />
+  <line x1="62" y1="90" x2="118" y2="90" stroke="#26282A" stroke-width="7" stroke-linecap="round" opacity="0.55" />
+  <line x1="62" y1="112" x2="130" y2="112" stroke="#7C9B86" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 9" />
+  <line x1="62" y1="134" x2="104" y2="134" stroke="#26282A" stroke-width="7" stroke-linecap="round" opacity="0.55" />
+</svg>

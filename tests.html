@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tests — logique pure (core.js)</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #f3ede3;
+        color: #26282a;
+        margin: 0;
+        padding: 20px;
+        font-size: 15px;
+      }
+      h1 { font-size: 20px; letter-spacing: 2px; text-transform: uppercase; }
+      #bilan { font-size: 18px; font-weight: 700; padding: 14px 16px; border-radius: 12px; }
+      .vert { background: #7c9b86; color: #fff; }
+      .rouge { background: #a24b42; color: #fff; }
+      ul { list-style: none; padding: 0; }
+      li { padding: 7px 10px; border-bottom: 1px solid rgba(38, 40, 42, 0.1); }
+      li.ko { background: rgba(162, 75, 66, 0.12); font-weight: 600; }
+      .detail { display: block; font-size: 13px; color: rgba(38, 40, 42, 0.6); }
+    </style>
+  </head>
+  <body>
+    <h1>Tests — logique pure</h1>
+    <p>
+      Ce harnais ne charge que <code>core.js</code> : ni stockage, ni interface, ni réseau.
+      C'est ce qui rend le cœur vérifiable isolément.
+    </p>
+    <div id="bilan">…</div>
+    <ul id="liste"></ul>
+
+    <script src="./core.js"></script>
+    <script>
+      var resultats = [];
+
+      function test(nom, fn) {
+        try {
+          fn();
+          resultats.push({ nom: nom, ok: true });
+        } catch (e) {
+          resultats.push({ nom: nom, ok: false, detail: String((e && e.message) || e) });
+        }
+      }
+
+      function egal(a, b, message) {
+        var sa = JSON.stringify(a);
+        var sb = JSON.stringify(b);
+        if (sa !== sb) throw new Error((message || '') + ' — attendu ' + sb + ', obtenu ' + sa);
+      }
+
+      function vrai(v, message) {
+        if (!v) throw new Error(message || 'attendu vrai');
+      }
+
+      // ---- Dates ----
+
+      test('dateISO formate en AAAA-MM-JJ', function () {
+        egal(Core.dateISO(new Date(2026, 6, 28)), '2026-07-28');
+        egal(Core.dateISO(new Date(2026, 0, 3)), '2026-01-03');
+      });
+
+      test('horodatage formate en AAAA-MM-JJ HH:MM:SS', function () {
+        egal(Core.horodatage(new Date(2026, 6, 28, 9, 5, 3)), '2026-07-28 09:05:03');
+      });
+
+      test('dateFr formate en JJ/MM/AAAA', function () {
+        egal(Core.dateFr('2026-07-28'), '28/07/2026');
+      });
+
+      test('horodatageFr ajoute l\'heure quand elle est là', function () {
+        egal(Core.horodatageFr('2026-07-28 09:05:03'), '28/07/2026 à 09:05');
+        egal(Core.horodatageFr('2026-07-28'), '28/07/2026');
+      });
+
+      test('dateValide accepte une date réelle et refuse le reste', function () {
+        vrai(Core.dateValide('2026-07-28'));
+        vrai(Core.dateValide('2024-02-29'), 'année bissextile');
+        vrai(!Core.dateValide('2026-02-29'), 'le 29 février n\'existe pas en 2026');
+        vrai(!Core.dateValide('2026-13-01'));
+        vrai(!Core.dateValide('28/07/2026'));
+        vrai(!Core.dateValide(''));
+        vrai(!Core.dateValide(null));
+      });
+
+      test('grilleMois rend 42 cases, lundi en tête', function () {
+        var cases = Core.grilleMois(2026, 6); // juillet 2026, le 1er est un mercredi
+        egal(cases.length, 42);
+        egal(cases[0].iso, '2026-06-29', 'la grille commence au lundi précédent');
+        vrai(cases[0].horsMois);
+        var premierDuMois = cases.filter(function (c) { return c.iso === '2026-07-01'; })[0];
+        vrai(premierDuMois && !premierDuMois.horsMois);
+      });
+
+      // ---- UUID et nom de lot ----
+
+      test('uuid produit des identifiants distincts et bien formés', function () {
+        var a = Core.uuid();
+        var b = Core.uuid();
+        vrai(a !== b, 'deux UUID successifs diffèrent');
+        vrai(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(a), a);
+      });
+
+      test('lotFilename respecte le contrat de nommage', function () {
+        var nom = Core.lotFilename('a1b2c3d4-0000-4000-8000-000000000000', new Date(2026, 6, 28, 9, 30, 5));
+        egal(nom, 'lot 2026-07-28 09h30m05 a1b2c3.json');
+      });
+
+      test('l\'ordre alphabétique des noms de lots est chronologique', function () {
+        var d1 = new Date(2026, 6, 27, 23, 59, 59);
+        var d2 = new Date(2026, 6, 28, 0, 0, 0);
+        var n1 = Core.lotFilename('ffffff00-0000-4000-8000-000000000000', d1);
+        var n2 = Core.lotFilename('00000000-0000-4000-8000-000000000000', d2);
+        vrai(n1 < n2, n1 + ' doit précéder ' + n2);
+      });
+
+      test('lotFilename complète un UUID trop court sans jamais casser', function () {
+        egal(Core.lotFilename('ab', new Date(2026, 6, 28, 1, 2, 3)), 'lot 2026-07-28 01h02m03 ab0000.json');
+      });
+
+      // ---- Le lot ----
+
+      test('buildLot ne recopie QUE les champs du contrat', function () {
+        var lot = Core.buildLot(
+          [{ uuid: 'u1', texte: 'a', date: '2026-07-28', cible: 'proj:3', cible_nom: 'Musique', cree_le: '2026-07-28 09:30:12', seq: 42, envoyee: false }],
+          'lot-uuid',
+          '2026-07-28 10:00:00'
+        );
+        egal(lot.format, 'cockpit-notes-lot');
+        egal(lot.version, 1);
+        egal(lot.lot, 'lot-uuid');
+        egal(lot.genere_le, '2026-07-28 10:00:00');
+        egal(Object.keys(lot.notes[0]).sort(), ['cible', 'cible_nom', 'cree_le', 'date', 'texte', 'uuid']);
+        vrai(lot.notes[0].seq === undefined, 'le compteur de tri ne fuite jamais dans le lot');
+      });
+
+      test('buildLot normalise une orpheline en cible nulle', function () {
+        var lot = Core.buildLot([{ uuid: 'u1', texte: 'a', date: '2026-07-28' }], 'l', 'g');
+        egal(lot.notes[0].cible, null);
+        egal(lot.notes[0].cible_nom, '');
+        egal(lot.notes[0].cree_le, null);
+      });
+
+      test('buildLot accepte une file vide', function () {
+        egal(Core.buildLot([], 'l', 'g').notes, []);
+      });
+
+      test('lotJson produit du JSON indenté relisible', function () {
+        var lot = Core.buildLot([{ uuid: 'u1', texte: 'ligne\nsuite', date: '2026-07-28' }], 'l', 'g');
+        var texte = Core.lotJson(lot);
+        vrai(texte.indexOf('\n  ') >= 0, 'indenté');
+        egal(JSON.parse(texte).notes[0].texte, 'ligne\nsuite', 'les sauts de ligne survivent');
+      });
+
+      test('le séparateur voyage tel quel dans le lot', function () {
+        var texte = 'avant\n' + Core.SEPARATEUR + '\naprès';
+        var lot = Core.buildLot([{ uuid: 'u1', texte: texte, date: '2026-07-28' }], 'l', 'g');
+        egal(JSON.parse(Core.lotJson(lot)).notes[0].texte, texte);
+      });
+
+      // ---- Les référentiels ----
+
+      function refProjets(version) {
+        return JSON.stringify({
+          format: 'cockpit-projets',
+          version: version === undefined ? 1 : version,
+          genere_le: '2026-07-28 12:00:00',
+          projets: [{ cle: 'proj:1', nom: 'Musique', couleur: '#7C9B86' }],
+        });
+      }
+
+      test('parseReferentiel reconnaît SEUL projets.json', function () {
+        var r = Core.parseReferentiel(refProjets());
+        vrai(r.ok);
+        egal(r.genre, 'projets');
+        egal(r.genere_le, '2026-07-28 12:00:00');
+        egal(r.projets[0].nom, 'Musique');
+      });
+
+      test('parseReferentiel reconnaît SEUL backlogs.json', function () {
+        var r = Core.parseReferentiel(JSON.stringify({
+          format: 'cockpit-backlogs',
+          version: 1,
+          genere_le: '2026-07-28 12:00:00',
+          projets: [{ cle: 'proj:1', nom: 'Musique', colonnes: [{ libelle: 'RDV', tickets: [] }] }],
+        }));
+        vrai(r.ok);
+        egal(r.genre, 'backlogs');
+        egal(r.projets[0].colonnes[0].libelle, 'RDV');
+      });
+
+      test('une version inconnue est refusée proprement', function () {
+        var r = Core.parseReferentiel(refProjets(9));
+        vrai(!r.ok);
+        vrai(r.versionInconnue);
+        vrai(r.erreur.indexOf('version') >= 0, r.erreur);
+      });
+
+      test('un JSON invalide ou un format étranger est refusé sans exception', function () {
+        vrai(!Core.parseReferentiel('{pas du json').ok);
+        vrai(!Core.parseReferentiel(JSON.stringify({ format: 'cadrage-cibles', version: 1 })).ok);
+        vrai(!Core.parseReferentiel('null').ok);
+      });
+
+      test('les champs inconnus d\'un référentiel sont ignorés', function () {
+        var r = Core.parseReferentiel(JSON.stringify({
+          format: 'cockpit-projets',
+          version: 1,
+          genere_le: 'g',
+          nouveaute: 42,
+          projets: [{ cle: 'proj:1', nom: 'M', couleur: '#000', futur: true }],
+        }));
+        vrai(r.ok);
+        egal(r.projets[0].nom, 'M');
+      });
+
+      test('un référentiel sans liste ne fait jamais échouer la lecture', function () {
+        var r = Core.parseReferentiel(JSON.stringify({ format: 'cockpit-projets', version: 1 }));
+        vrai(r.ok);
+        egal(r.projets, []);
+      });
+
+      // ---- Le corps d'une note ----
+
+      test('la première ligne sert de titre', function () {
+        egal(Core.titreNote('Idée de refrain\nsuite'), 'Idée de refrain');
+        egal(Core.titreNote('\n\n  Après des blancs  '), 'Après des blancs');
+        egal(Core.titreNote(''), '(note vide)');
+      });
+
+      test('le séparateur n\'est jamais un titre', function () {
+        egal(Core.titreNote(Core.SEPARATEUR + '\nvrai titre'), 'vrai titre');
+      });
+
+      test('un titre très long est tronqué à l\'affichage', function () {
+        var titre = Core.titreNote(new Array(200).join('a'));
+        vrai(titre.length <= 71, titre.length + ' caractères');
+      });
+
+      test('l\'aperçu montre la suite, sans le titre ni les traits', function () {
+        egal(Core.apercuNote('titre\n' + Core.SEPARATEUR + '\nsuite\nfin'), 'suite · fin');
+        egal(Core.apercuNote('titre seul'), '');
+      });
+
+      test('une note vide est reconnue, séparateurs seuls compris', function () {
+        vrai(Core.noteVide(''));
+        vrai(Core.noteVide('   \n\n  '));
+        vrai(Core.noteVide(Core.SEPARATEUR));
+        vrai(!Core.noteVide('a'));
+        vrai(!Core.noteVide(Core.SEPARATEUR + '\nquelque chose'));
+      });
+
+      test('estSeparateur tolère un trait raccourci', function () {
+        vrai(Core.estSeparateur(Core.SEPARATEUR));
+        vrai(Core.estSeparateur('--------'));
+        vrai(!Core.estSeparateur('---'));
+        vrai(!Core.estSeparateur('- a -'));
+      });
+
+      // ---- L'insertion du séparateur ----
+
+      test('le séparateur s\'insère sur sa propre ligne, au curseur', function () {
+        var r = Core.insererSeparateur('avantaprès', 5);
+        egal(r.texte, 'avant\n' + Core.SEPARATEUR + '\naprès');
+        egal(r.texte.slice(0, r.curseur), 'avant\n' + Core.SEPARATEUR + '\n');
+      });
+
+      test('le séparateur ne double jamais les sauts de ligne', function () {
+        var r = Core.insererSeparateur('avant\n', 6);
+        egal(r.texte, 'avant\n' + Core.SEPARATEUR + '\n');
+      });
+
+      test('le séparateur en fin de texte reste correct', function () {
+        var r = Core.insererSeparateur('texte', 5);
+        egal(r.texte, 'texte\n' + Core.SEPARATEUR + '\n');
+        egal(r.curseur, r.texte.length);
+      });
+
+      test('une position hors bornes retombe sur la fin du texte', function () {
+        egal(Core.insererSeparateur('abc', 99).texte, 'abc\n' + Core.SEPARATEUR + '\n');
+        egal(Core.insererSeparateur('abc').texte, 'abc\n' + Core.SEPARATEUR + '\n');
+      });
+
+      test('insérer dans un texte vide ne casse rien', function () {
+        egal(Core.insererSeparateur('', 0).texte, Core.SEPARATEUR + '\n');
+      });
+
+      // ---- Bilan ----
+
+      var echecs = resultats.filter(function (r) { return !r.ok; });
+      document.getElementById('bilan').className = echecs.length ? 'rouge' : 'vert';
+      document.getElementById('bilan').textContent = echecs.length
+        ? echecs.length + ' test(s) en échec sur ' + resultats.length
+        : resultats.length + ' tests passés';
+      document.getElementById('liste').innerHTML = resultats
+        .map(function (r) {
+          return (
+            '<li class="' + (r.ok ? 'ok' : 'ko') + '">' + (r.ok ? '✓ ' : '✗ ') + r.nom +
+            (r.detail ? '<span class="detail">' + r.detail + '</span>' : '') + '</li>'
+          );
+        })
+        .join('');
+    </script>
+  </body>
+</html>

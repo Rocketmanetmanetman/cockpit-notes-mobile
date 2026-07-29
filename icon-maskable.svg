@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- Variante « maskable » : le motif tient dans la zone sûre (80 % centrés), le fond
+       déborde jusqu'aux bords pour supporter n'importe quel masque du système. -->
+  <rect width="192" height="192" fill="#34505A" />
+  <rect x="58" y="46" width="76" height="100" rx="10" fill="#F3EDE3" />
+  <line x1="72" y1="72" x2="120" y2="72" stroke="#26282A" stroke-width="6" stroke-linecap="round" />
+  <line x1="72" y1="92" x2="110" y2="92" stroke="#26282A" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+  <line x1="72" y1="110" x2="120" y2="110" stroke="#7C9B86" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 8" />
+  <line x1="72" y1="128" x2="100" y2="128" stroke="#26282A" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+</svg>

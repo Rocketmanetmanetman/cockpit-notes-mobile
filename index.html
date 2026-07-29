@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#34505A" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Notes — Cockpit</title>
+    <!-- Chemins RELATIFS partout : l'application est servie sous un sous-chemin GitHub
+         Pages (utilisateur.github.io/depot/mobile/). Aucune ressource distante : ni
+         police, ni bibliothèque, ni CDN — 100 % hors-ligne. -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <!-- Sélecteur de fichier des référentiels, HORS de #app : il survit aux rendus. -->
+    <input type="file" id="fichier-ref" accept=".json,application/json" hidden />
+    <script src="./core.js"></script>
+    <script src="./store.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
