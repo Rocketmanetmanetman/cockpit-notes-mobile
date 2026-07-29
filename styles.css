@@ -363,6 +363,39 @@ code {
   color: var(--encre);
 }
 
+.dernier-lot {
+  margin-top: 14px;
+}
+
+/* Le nom exact du fichier à retrouver dans les Téléchargements : il doit être lisible
+   caractère par caractère, donc en chasse fixe et détaché du texte courant. */
+.depot-fichier {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-all;
+  background: rgba(52, 80, 90, 0.09);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+}
+
+.bloc-envoi .depot-fichier {
+  background: rgba(243, 237, 227, 0.16);
+  color: var(--creme);
+}
+
+.depot-etapes {
+  margin: 0 0 18px;
+  padding-left: 22px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.depot-etapes li {
+  margin-bottom: 6px;
+}
+
 /* ---- Backlogs ---- */
 
 /* Avertissement de fraîcheur : bien en évidence, en tête de l'écran (D16). */

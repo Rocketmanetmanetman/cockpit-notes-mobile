@@ -33,6 +33,13 @@
     ticket: null,
     calendrier: null,
     confirmation: null,
+    // Lot fabriqué d'avance, en attente du « Confirmer » (voir `preparerEnvoi`).
+    lotPret: null,
+    // Panneau d'accompagnement du dépôt : il RESTE à l'écran jusqu'à ce que Julien le
+    // ferme. Un message fugace ne suffit pas — le transport est manuel, il faut le guider.
+    depot: null,
+    // Dernier lot fabriqué, conservé pour pouvoir le retélécharger sans rien renvoyer.
+    dernierLot: null,
     message: null,
     minuteurMessage: null,
   };
@@ -200,6 +207,12 @@
       '</button>' +
       '<button type="button" class="bouton bouton-doux" data-action="tout-renvoyer"' +
       (S.notes.length === 0 ? ' disabled' : '') + '>Tout renvoyer (réparation)</button>' +
+      (S.dernierLot
+        ? '<p class="indicateur dernier-lot">Dernier fichier : <span class="depot-fichier">' +
+          ech(S.dernierLot.nom) + '</span></p>' +
+          '<button type="button" class="bouton bouton-doux" data-action="retelecharger">' +
+          'Retélécharger ce fichier</button>'
+        : '') +
       '</section>' +
 
       // Les deux sens du transport se suivent : ce qui part, puis ce qui arrive. La file
@@ -384,6 +397,31 @@
         '</div></div>';
     }
 
+    // Accompagnement du dépôt (§5.4 : « affiche le rappel de le déposer dans le dossier
+    // Drive »). Le transport est MANUEL : un message fugace ne suffit pas, ce panneau
+    // reste jusqu'à ce que Julien le ferme, et il rappelle le nom exact du fichier.
+    if (S.depot) {
+      sortie +=
+        '<div class="calque">' +
+        '<div class="feuille" data-stop="1">' +
+        '<h3 class="feuille-titre">' +
+        S.depot.nb + (S.depot.nb === 1 ? ' note envoyée' : ' notes envoyées') +
+        '</h3>' +
+        '<p class="explication">Le fichier est dans tes <strong>Téléchargements</strong> :</p>' +
+        '<p class="depot-fichier">' + ech(S.depot.nom) + '</p>' +
+        '<ol class="depot-etapes">' +
+        '<li>Ouvre l\'application <strong>Google Drive</strong>.</li>' +
+        '<li>Va dans le <strong>dossier de synchronisation du Cockpit</strong>.</li>' +
+        '<li>Bouton <strong>+</strong>, puis <strong>Importer</strong>.</li>' +
+        '<li>Choisis ce fichier dans tes <strong>Téléchargements</strong>.</li>' +
+        '<li>Sur le PC, en bas de l\'Accueil : <strong>Synchroniser</strong>, puis ' +
+        '<strong>Tout importer</strong>.</li>' +
+        '</ol>' +
+        '<button type="button" class="bouton bouton-fort" data-action="depot-fait">C\'est déposé</button>' +
+        '<button type="button" class="bouton bouton-doux" data-action="retelecharger">Retélécharger le fichier</button>' +
+        '</div></div>';
+    }
+
     // La confirmation est ajoutée EN DERNIER : elle passe donc devant tout autre calque.
     if (S.confirmation) {
       sortie +=
@@ -474,43 +512,84 @@
     S.date = Core.dateISO();
   }
 
+  // Renvoie `true` si le téléchargement a pu être déclenché. **À appeler SYNCHRONEMENT
+  // dans le geste de l'utilisateur** : Android Chrome bloque, sans un mot, un
+  // téléchargement lancé depuis une suite asynchrone (le geste n'est plus « actif »).
   function telecharger(nom, contenu) {
-    var blob = new Blob([contenu], { type: 'application/json' });
-    var url = URL.createObjectURL(blob);
-    var lien = document.createElement('a');
-    lien.href = url;
-    lien.download = nom;
-    document.body.appendChild(lien);
-    lien.click();
-    lien.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    try {
+      var blob = new Blob([contenu], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var lien = document.createElement('a');
+      lien.href = url;
+      lien.download = nom;
+      lien.rel = 'noopener';
+      document.body.appendChild(lien);
+      lien.click();
+      lien.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
-  // Fabrique un lot, le télécharge, puis marque les notes comme envoyées. Le PC
-  // dédoublonne par UUID : un recouvrement n'a aucune conséquence.
-  function envoyer(portee) {
-    var source = portee === 'tout' ? Store.tout() : Store.enAttente();
-    source
+  // Fabrique le lot **avant** d'ouvrir la confirmation. Au moment du « Confirmer », il ne
+  // reste plus qu'à télécharger — synchroniquement, dans le geste. C'est ce qui manquait :
+  // le lot se construisait après deux lectures d'IndexedDB, et le téléchargement partait
+  // trop tard pour que le navigateur l'autorise encore.
+  function preparerEnvoi(portee) {
+    (portee === 'tout' ? Store.tout() : Store.enAttente())
       .then(function (notes) {
         if (notes.length === 0) {
           signaler('Rien à envoyer.');
-          return null;
+          return;
         }
         var maintenant = new Date();
         var lotUuid = Core.uuid();
         var lot = Core.buildLot(notes, lotUuid, Core.horodatage(maintenant));
-        telecharger(Core.lotFilename(lotUuid, maintenant), Core.lotJson(lot));
-        return Store.marquerEnvoyees(
-          notes.map(function (n) { return n.uuid; }),
-          lotUuid,
-          Core.horodatage(maintenant),
-        ).then(function () { return notes.length; });
+        S.lotPret = {
+          nom: Core.lotFilename(lotUuid, maintenant),
+          json: Core.lotJson(lot),
+          uuid: lotUuid,
+          uuids: notes.map(function (n) { return n.uuid; }),
+          envoye_le: Core.horodatage(maintenant),
+          nb: notes.length,
+        };
+        S.confirmation = {
+          titre: portee === 'tout' ? 'Tout renvoyer ?' : 'Envoyer vers le PC ?',
+          texte:
+            portee === 'tout'
+              ? 'Toutes les notes, envoyées comprises (' + notes.length + '), repartiront dans un ' +
+                "seul fichier. C'est l'outil de réparation après une restauration de sauvegarde du " +
+                'PC : le PC ne créera jamais de doublon.'
+              : notes.length + (notes.length === 1 ? ' note va être mise' : ' notes vont être mises') +
+                ' dans un fichier à déposer dans le dossier Google Drive. Une fois envoyées, elles ' +
+                'seront figées.',
+          libelle: portee === 'tout' ? 'Tout renvoyer' : 'Envoyer',
+          action: envoyerMaintenant,
+        };
+        render();
       })
-      .then(function (nb) {
-        if (nb === null) return;
-        return charger().then(function () {
-          signaler(nb + (nb === 1 ? ' note envoyée' : ' notes envoyées') + ' — dépose le fichier dans le dossier Google Drive.');
-        });
+      .catch(function (e) { signaler(String(e.message || e)); });
+  }
+
+  // Le geste : télécharger d'abord, marquer ensuite. **On ne marque JAMAIS une note comme
+  // envoyée si le fichier n'est pas parti** — sinon elle serait figée sans exister nulle part.
+  function envoyerMaintenant() {
+    var pret = S.lotPret;
+    S.lotPret = null;
+    if (!pret) return;
+    if (!telecharger(pret.nom, pret.json)) {
+      signaler("Le téléchargement n'a pas démarré. Rien n'a été marqué comme envoyé — réessaie.");
+      return;
+    }
+    S.dernierLot = { nom: pret.nom, json: pret.json, envoye_le: pret.envoye_le, nb: pret.nb };
+    Store.enregistrerDernierLot(S.dernierLot).catch(function () {});
+    Store.marquerEnvoyees(pret.uuids, pret.uuid, pret.envoye_le)
+      .then(charger)
+      .then(function () {
+        S.depot = { nom: pret.nom, nb: pret.nb };
+        render();
       })
       .catch(function (e) { signaler(String(e.message || e)); });
   }
@@ -544,8 +623,10 @@
       Store.listerNotes(),
       Store.lireReferentiel('projets'),
       Store.lireReferentiel('backlogs'),
+      Store.lireDernierLot(),
     ]).then(function (r) {
       S.notes = r[0];
+      if (r[3]) S.dernierLot = r[3];
       var projets = r[1] ? Core.parseReferentiel(r[1]) : null;
       if (projets && projets.ok) {
         S.projets = projets.projets;
@@ -645,26 +726,21 @@
       };
       render();
     } else if (action === 'envoyer') {
-      var attente = nbEnAttente();
-      S.confirmation = {
-        titre: 'Envoyer vers le PC ?',
-        texte:
-          attente + (attente === 1 ? ' note va être mise' : ' notes vont être mises') +
-          ' dans un fichier à déposer dans le dossier Google Drive. Une fois envoyées, elles seront figées.',
-        libelle: 'Envoyer',
-        action: function () { envoyer('attente'); },
-      };
-      render();
+      preparerEnvoi('attente');
     } else if (action === 'tout-renvoyer') {
-      S.confirmation = {
-        titre: 'Tout renvoyer ?',
-        texte:
-          'Toutes les notes, envoyées comprises, repartiront dans un seul fichier. ' +
-          "C'est l'outil de réparation après une restauration de sauvegarde du PC : " +
-          'le PC ne créera jamais de doublon.',
-        libelle: 'Tout renvoyer',
-        action: function () { envoyer('tout'); },
-      };
+      preparerEnvoi('tout');
+    } else if (action === 'retelecharger') {
+      // Le fichier s'est perdu dans les Téléchargements, ou le navigateur l'a bloqué :
+      // on le refabrique À L'IDENTIQUE. Rien n'est renvoyé, rien n'est marqué.
+      if (!S.dernierLot) {
+        signaler('Aucun lot à retélécharger.');
+      } else if (telecharger(S.dernierLot.nom, S.dernierLot.json)) {
+        signaler('Fichier retéléchargé : ' + S.dernierLot.nom);
+      } else {
+        signaler("Le téléchargement n'a pas démarré.");
+      }
+    } else if (action === 'depot-fait') {
+      S.depot = null;
       render();
     } else if (action === 'importer-ref') {
       document.getElementById('fichier-ref').click();
@@ -675,6 +751,7 @@
       if (suite) suite();
     } else if (action === 'annuler-confirmation') {
       S.confirmation = null;
+      S.lotPret = null; // un lot préparé mais non confirmé ne doit rien laisser derrière lui
       render();
     } else if (action === 'backlog-projet') {
       S.backlogProjet = el.dataset.cle;

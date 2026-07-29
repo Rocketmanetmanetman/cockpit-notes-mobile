@@ -173,6 +173,23 @@
     });
   }
 
+  // Le dernier lot fabriqué est CONSERVÉ (nom + contenu). Un téléchargement peut échouer,
+  // un fichier peut se perdre dans les Téléchargements : on doit pouvoir le refabriquer à
+  // l'identique sans rien renvoyer ni rien dupliquer.
+  function enregistrerDernierLot(lot) {
+    return transaction(['meta'], 'readwrite').then(function (t) {
+      return promesse(t.objectStore('meta').put({ cle: 'dernier_lot', valeur: lot }));
+    });
+  }
+
+  function lireDernierLot() {
+    return transaction(['meta'], 'readonly').then(function (t) {
+      return promesse(t.objectStore('meta').get('dernier_lot')).then(function (l) {
+        return l ? l.valeur : null;
+      });
+    });
+  }
+
   global.Store = {
     ouvrir: ouvrir,
     demanderPersistance: demanderPersistance,
@@ -186,5 +203,7 @@
     marquerEnvoyees: marquerEnvoyees,
     enregistrerReferentiel: enregistrerReferentiel,
     lireReferentiel: lireReferentiel,
+    enregistrerDernierLot: enregistrerDernierLot,
+    lireDernierLot: lireDernierLot,
   };
 })(window);
