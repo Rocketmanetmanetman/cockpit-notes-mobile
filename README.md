@@ -32,19 +32,15 @@ specs, `CLAUDE.md`, `CLAUDE_WEB.md`, les documents de référence et des chemins
 La **source de vérité reste `mobile/`** dans le dépôt Cockpit ; le dépôt public en est une
 copie, tenue à jour par [`publier.ps1`](publier.ps1).
 
-Une seule fois :
+**Fait le 29-07-2026** : dépôt <https://github.com/Rocketmanetmanetman/cockpit-notes-mobile>,
+poussé depuis `…\refonte\claude code\cockpit-notes-mobile` (dossier frère du dépôt Cockpit).
+L'application est servie à
+**<https://rocketmanetmanetman.github.io/cockpit-notes-mobile/>**.
 
-1. Créer sur GitHub un dépôt **public** vide, par exemple `cockpit-notes-mobile` — **sans**
-   README, .gitignore ni licence (le dossier local en a déjà un).
-2. Le rattacher au dossier local déjà préparé et pousser :
-   ```
-   git -C "…\refonte\claude code\cockpit-notes-mobile" remote add origin https://github.com/<compte>/cockpit-notes-mobile.git
-   git -C "…\refonte\claude code\cockpit-notes-mobile" push -u origin main
-   ```
-3. Dépôt → **Settings** → **Pages** → **Source** : « Deploy from a branch », **Branch** :
-   `main`, dossier `/ (root)`. Enregistrer.
-4. L'application est servie à `https://<compte>.github.io/cockpit-notes-mobile/`
-   (compter une minute pour la première mise en ligne).
+*(Pour mémoire, si tout était à refaire : créer un dépôt **public vide** — sans README,
+.gitignore ni licence —, `git remote add origin …` puis `git push -u origin main` depuis le
+dossier local, et activer Pages : dépôt → **Settings** → **Pages** → Source « Deploy from a
+branch », branche `main`, dossier `/ (root)`.)*
 
 Ensuite, publier une modification :
 
