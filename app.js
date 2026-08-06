@@ -5,11 +5,11 @@
 // après chaque rendu). Toute confirmation passe par une **modale maison**, jamais par un
 // dialogue du navigateur ; une confirmation posée par-dessus un autre calque passe devant.
 //
-// Trois écrans : **Note** (écrire), **File** (envoyer, recevoir les référentiels) et
-// **Backlogs** (consultation en lecture seule). Le bloc « Envoi vers le PC » est nettement
-// séparé du bouton d'enregistrement : ce sont deux gestes de nature opposée — l'un remplit
-// la file, l'autre la vide — et les coller a déjà coûté des erreurs de manipulation sur
-// l'application de budget.
+// Quatre écrans : **Écrire** (note libre, ticket ou idée — SPEC notes typées §4.1), **File**
+// (envoyer, recevoir les référentiels), **Backlogs** et **Idées** (consultations en lecture
+// seule). Le bloc « Envoi vers le PC » est nettement séparé du bouton d'enregistrement : ce
+// sont deux gestes de nature opposée — l'un remplit la file, l'autre la vide — et les coller
+// a déjà coûté des erreurs de manipulation sur l'application de budget.
 (function (global) {
   'use strict';
 
@@ -18,6 +18,11 @@
 
   var S = {
     ecran: 'note',
+    // Genre de saisie (SPEC notes typées §4.1) : 'note' par défaut ; après l'enregistrement
+    // d'un ticket ou d'une idée, on REVIENT à 'note' (D5) — le projet, lui, est conservé.
+    genre: 'note',
+    // La fiche du formulaire Ticket/Idée (Core.ficheVierge) ; sans objet pour une note.
+    fiche: Core.ficheVierge(),
     texte: '',
     cible: null,
     cibleNom: '',
@@ -34,6 +39,12 @@
     backlogProjet: null,
     colonneOuverte: null,
     ticket: null,
+    // Écran « Idées » (lecture seule, §4.5) — même patron que les backlogs.
+    ideeProjet: null,
+    categorieOuverte: null,
+    idee: null,
+    // `cible` du mini-calendrier : 'note' (date de saisie) ou 'fiche' (échéance / jour du
+    // rendez-vous du formulaire Ticket).
     calendrier: null,
     confirmation: null,
     // Lot fabriqué d'avance, en attente du « Confirmer » (voir `preparerEnvoi`).
@@ -106,6 +117,7 @@
       { cle: 'note', libelle: 'Écrire' },
       { cle: 'file', libelle: 'File' },
       { cle: 'backlogs', libelle: 'Backlogs' },
+      { cle: 'idees', libelle: 'Idées' },
     ];
     return (
       '<nav class="onglets">' +
@@ -121,7 +133,282 @@
     );
   }
 
-  // -- Écran 1 : écrire une note --
+  // -- Écran 1 : écrire — note libre, ticket ou idée (SPEC notes typées §4.1-§4.3) --
+
+  // Le projet sélectionné, tel que l'instantané des backlogs le connaît (colonnes avec
+  // leurs ids, catégories d'idées). `null` si l'instantané ne le connaît pas.
+  function projetBacklog(cle) {
+    return (
+      S.backlogs.filter(function (p) {
+        return p.cle === cle;
+      })[0] || null
+    );
+  }
+
+  // Pourquoi « Ticket » est grisé — `null` si possible (§4.6).
+  function motifTicket() {
+    if (!S.cible) return null; // le cas « sans projet » a son message commun (D1)
+    if (Core.colonnesCiblables(projetBacklog(S.cible)).length === 0) {
+      return 'Tickets indisponibles : cet instantané des backlogs date d\'avant les notes ' +
+        'typées. Sur le PC : « Pousser maintenant », puis recharge backlogs.json.';
+    }
+    return null;
+  }
+
+  // Pourquoi « Idée » est grisée — `null` si possible (§4.6).
+  function motifIdee() {
+    if (!S.cible) return null;
+    var categories = Core.categoriesDe(projetBacklog(S.cible));
+    if (categories === null) {
+      return 'Idées indisponibles : cet instantané des backlogs date d\'avant les notes ' +
+        'typées. Sur le PC : « Pousser maintenant », puis recharge backlogs.json.';
+    }
+    if (categories.length === 0) {
+      return 'Ce projet n\'a pas encore de catégorie : crée-la dans son Tableau à idées ' +
+        'sur le PC, repousse, puis recharge backlogs.json.';
+    }
+    return null;
+  }
+
+  // Un genre devenu impossible (projet changé, référentiel rechargé) retombe sur la note
+  // libre — jamais pendant une édition, qui porte déjà ses données.
+  function assainirGenre() {
+    if (S.edition !== null) return;
+    if (S.genre === 'ticket' && (!S.cible || motifTicket() !== null)) S.genre = 'note';
+    if (S.genre === 'idee' && (!S.cible || motifIdee() !== null)) S.genre = 'note';
+  }
+
+  function selecteurGenre() {
+    var enEdition = S.edition !== null;
+    var motifs = { note: null, ticket: motifTicket(), idee: motifIdee() };
+    function segment(cle, libelle) {
+      // En édition, rien n'est grisé : la note porte déjà ses données, et changer de
+      // genre reste permis tant qu'elle n'est pas envoyée (§4.4).
+      var grise = !enEdition && cle !== 'note' && (!S.cible || motifs[cle] !== null);
+      return (
+        '<button type="button" class="segment' + (S.genre === cle ? ' segment-actif' : '') +
+        '"' + (grise ? ' disabled' : '') + ' data-action="genre" data-cle="' + cle + '">' +
+        libelle + '</button>'
+      );
+    }
+    var lignes = [];
+    if (!enEdition) {
+      if (!S.cible) {
+        lignes.push('Sans projet choisi, seule la note libre part — choisis un projet ' +
+          'plus bas pour un ticket ou une idée.');
+      } else {
+        if (motifs.ticket) lignes.push(motifs.ticket);
+        if (motifs.idee && motifs.idee !== motifs.ticket) lignes.push(motifs.idee);
+      }
+    }
+    return (
+      '<section class="bloc bloc-segments">' +
+      '<div class="segments">' +
+      segment('note', 'Note') + segment('ticket', 'Ticket') + segment('idee', 'Idée') +
+      '</div>' +
+      lignes
+        .map(function (l) {
+          return '<p class="explication explication-segments">' + ech(l) + '</p>';
+        })
+        .join('') +
+      '</section>'
+    );
+  }
+
+  // Le corps d'une note LIBRE — inchangé.
+  function blocSaisieNote(enEdition) {
+    return (
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">' + (enEdition ? 'Modifier la note' : 'Nouvelle note') + '</h2>' +
+      // 7 lignes : de quoi écrire largement, tout en laissant le choix du projet (et, au
+      // premier lancement, le bouton d'import) atteignable sans faire défiler l'écran.
+      // Le champ reste redimensionnable à la main (`resize: vertical`).
+      '<textarea class="saisie" id="saisie" placeholder="Écris ta note…" rows="7">' + ech(S.texte) + '</textarea>' +
+      '<div class="rangee-outils">' +
+      '<button type="button" class="bouton bouton-doux" data-action="separateur">— Séparateur</button>' +
+      '</div>' +
+      '</section>'
+    );
+  }
+
+  // Titre + description, communs aux deux fiches.
+  function champsTitreDescription(quoi, enEdition) {
+    return (
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">' +
+      (enEdition ? 'Modifier ' + (quoi === 'ticket' ? 'le ticket' : "l'idée")
+        : quoi === 'ticket' ? 'Nouveau ticket' : 'Nouvelle idée') +
+      '</h2>' +
+      '<input type="text" class="champ" data-champ="titre" placeholder="Titre" value="' +
+      ech(S.fiche.titre) + '">' +
+      '<textarea class="saisie saisie-fiche" data-champ="description" rows="4" ' +
+      'placeholder="Description (facultative)">' + ech(S.fiche.description) + '</textarea>' +
+      '</section>'
+    );
+  }
+
+  // Les liens web, communs aux deux fiches (libellé + URL, ajout/retrait).
+  function blocLiens() {
+    return (
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">Liens web</h2>' +
+      S.fiche.liens
+        .map(function (l, i) {
+          return (
+            '<div class="rangee-lien">' +
+            '<input type="text" class="champ champ-lien" data-champ="lien-libelle" data-index="' + i +
+            '" placeholder="Libellé" value="' + ech(l.libelle) + '">' +
+            '<input type="url" class="champ champ-lien" data-champ="lien-url" data-index="' + i +
+            '" placeholder="https://…" value="' + ech(l.url) + '">' +
+            '<button type="button" class="bouton bouton-danger bouton-retirer" ' +
+            'data-action="fiche-retirer-lien" data-index="' + i + '" aria-label="Retirer ce lien">✕</button>' +
+            '</div>'
+          );
+        })
+        .join('') +
+      '<button type="button" class="bouton bouton-doux" data-action="fiche-ajouter-lien">+ Ajouter un lien</button>' +
+      '</section>'
+    );
+  }
+
+  // Position d'arrivée : haut ou bas de colonne/catégorie, bas par défaut — comme le
+  // formulaire du Cockpit.
+  function blocPosition(libelle) {
+    return (
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">' + libelle + '</h2>' +
+      '<div class="segments segments-courts">' +
+      ['bas', 'haut']
+        .map(function (cle) {
+          return (
+            '<button type="button" class="segment' + (S.fiche.position === cle ? ' segment-actif' : '') +
+            '" data-action="fiche-position" data-cle="' + cle + '">' +
+            (cle === 'bas' ? 'En bas' : 'En haut') + '</button>'
+          );
+        })
+        .join('') +
+      '</div>' +
+      '</section>'
+    );
+  }
+
+  // La fiche Ticket (§4.2) : miroir du formulaire du Cockpit.
+  function formulaireTicket(enEdition) {
+    var colonnes = Core.colonnesCiblables(projetBacklog(S.cible));
+    var pastillesColonnes = colonnes
+      .map(function (c) {
+        var active = !S.fiche.rdv && S.fiche.colonne_id === c.id;
+        return (
+          '<button type="button" class="pastille' + (active ? ' pastille-active' : '') +
+          '" data-action="fiche-colonne" data-id="' + c.id + '" data-libelle="' + ech(c.libelle) +
+          '" style="--teinte:' + ech(c.couleur || '#8A8F94') + '">' + ech(c.libelle) + '</button>'
+        );
+      })
+      .join('');
+    var pastilleRdv =
+      '<button type="button" class="pastille pastille-rdv' + (S.fiche.rdv ? ' pastille-active' : '') +
+      '" data-action="fiche-rdv">Rendez-vous</button>';
+    // En édition sur un référentiel plus vieux que la note, les colonnes peuvent manquer :
+    // la pré-sélection de la charge reste portée telle quelle, on le dit simplement.
+    var sansColonnes = colonnes.length === 0 && !S.fiche.rdv
+      ? '<p class="explication">Les colonnes de cet instantané ne sont pas ciblables — la ' +
+        'pré-sélection enregistrée est conservée telle quelle.</p>'
+      : '';
+
+    var blocDate;
+    if (S.fiche.rdv) {
+      blocDate =
+        '<section class="bloc">' +
+        '<h2 class="titre-bloc">Rendez-vous — date et heure</h2>' +
+        '<div class="rangee-outils">' +
+        '<button type="button" class="bouton bouton-doux bouton-date" data-action="ouvrir-calendrier-fiche">' +
+        (S.fiche.date_valeur ? Core.dateFr(S.fiche.date_valeur) : 'Choisir la date') + '</button>' +
+        '<input type="text" class="champ champ-heure" data-champ="heure" inputmode="numeric" ' +
+        'maxlength="5" placeholder="09:30" value="' + ech(S.fiche.heure) + '">' +
+        '</div>' +
+        '<p class="explication">Un rendez-vous vit dans la colonne RDV, avec date et heure.</p>' +
+        '</section>';
+    } else {
+      blocDate =
+        '<section class="bloc">' +
+        '<h2 class="titre-bloc">Échéance (facultative)</h2>' +
+        '<div class="rangee-outils">' +
+        '<button type="button" class="bouton bouton-doux bouton-date" data-action="ouvrir-calendrier-fiche">' +
+        (S.fiche.date_valeur ? Core.dateFr(S.fiche.date_valeur) : 'Aucune échéance') + '</button>' +
+        (S.fiche.date_valeur
+          ? '<button type="button" class="bouton bouton-doux" data-action="fiche-sans-echeance">Retirer</button>'
+          : '') +
+        '</div>' +
+        '</section>';
+    }
+
+    return (
+      champsTitreDescription('ticket', enEdition) +
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">Colonne</h2>' +
+      '<div class="pastilles">' + pastillesColonnes + pastilleRdv + '</div>' +
+      sansColonnes +
+      '</section>' +
+      blocDate +
+      '<section class="bloc">' +
+      '<label class="choix-ligne"><input type="checkbox" data-action="fiche-rappel"' +
+      (S.fiche.rappel_home ? ' checked' : '') + '> Rappel sur le Home</label>' +
+      '</section>' +
+      (S.fiche.rdv ? '' : blocPosition('Position dans la colonne')) +
+      blocLiens()
+    );
+  }
+
+  // La fiche Idée (§4.3) : miroir du formulaire du Tableau à idées.
+  function formulaireIdee(enEdition) {
+    var categories = Core.categoriesDe(projetBacklog(S.cible)) || [];
+    var pastillesCategories = categories
+      .map(function (c) {
+        var active = S.fiche.categorie_id === c.id;
+        return (
+          '<button type="button" class="pastille' + (active ? ' pastille-active' : '') +
+          '" data-action="fiche-categorie" data-id="' + c.id + '" data-libelle="' + ech(c.libelle) +
+          '" style="--teinte:' + ech(c.couleur || '#8A8F94') + '">' + ech(c.libelle) + '</button>'
+        );
+      })
+      .join('');
+    var sansCategories = categories.length === 0
+      ? '<p class="explication">Les catégories de cet instantané ne sont pas ciblables — la ' +
+        'pré-sélection enregistrée est conservée telle quelle.</p>'
+      : '';
+    var maturites = [
+      { cle: 'brut', libelle: 'Brut' },
+      { cle: 'creuser', libelle: 'À creuser' },
+      { cle: 'mure', libelle: 'Mûre' },
+    ];
+
+    return (
+      champsTitreDescription('idee', enEdition) +
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">Catégorie</h2>' +
+      '<div class="pastilles">' + pastillesCategories + '</div>' +
+      sansCategories +
+      '</section>' +
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">Maturité</h2>' +
+      '<div class="segments">' +
+      maturites
+        .map(function (m) {
+          return (
+            '<button type="button" class="segment' + (S.fiche.maturite === m.cle ? ' segment-actif' : '') +
+            '" data-action="fiche-maturite" data-cle="' + m.cle + '">' + m.libelle + '</button>'
+          );
+        })
+        .join('') +
+      '</div>' +
+      '<label class="choix-ligne"><input type="checkbox" data-action="fiche-coeur"' +
+      (S.fiche.coup_de_coeur ? ' checked' : '') + '> ★ Coup de cœur</label>' +
+      '</section>' +
+      blocPosition('Position dans la catégorie') +
+      blocLiens()
+    );
+  }
+
   function ecranNote() {
     var enEdition = S.edition !== null;
     var pastilles = S.projets
@@ -153,19 +440,20 @@
         '</div>'
       : '';
 
+    var corps =
+      S.genre === 'ticket' ? formulaireTicket(enEdition)
+        : S.genre === 'idee' ? formulaireIdee(enEdition)
+          : blocSaisieNote(enEdition);
+    var libelleEnregistrer = enEdition
+      ? 'Enregistrer les modifications'
+      : S.genre === 'ticket' ? 'Enregistrer le ticket'
+        : S.genre === 'idee' ? 'Enregistrer l\'idée'
+          : 'Enregistrer la note';
+
     return (
       (avertissement === '' ? '' : '<section class="bloc">' + avertissement + '</section>') +
-
-      '<section class="bloc">' +
-      '<h2 class="titre-bloc">' + (enEdition ? 'Modifier la note' : 'Nouvelle note') + '</h2>' +
-      // 7 lignes : de quoi écrire largement, tout en laissant le choix du projet (et, au
-      // premier lancement, le bouton d'import) atteignable sans faire défiler l'écran.
-      // Le champ reste redimensionnable à la main (`resize: vertical`).
-      '<textarea class="saisie" id="saisie" placeholder="Écris ta note…" rows="7">' + ech(S.texte) + '</textarea>' +
-      '<div class="rangee-outils">' +
-      '<button type="button" class="bouton bouton-doux" data-action="separateur">— Séparateur</button>' +
-      '</div>' +
-      '</section>' +
+      selecteurGenre() +
+      corps +
 
       '<section class="bloc">' +
       '<h2 class="titre-bloc">Projet</h2>' +
@@ -180,7 +468,7 @@
 
       '<section class="bloc bloc-action">' +
       '<button type="button" class="bouton bouton-fort" data-action="enregistrer">' +
-      (enEdition ? 'Enregistrer les modifications' : 'Enregistrer la note') + '</button>' +
+      libelleEnregistrer + '</button>' +
       (enEdition
         ? '<button type="button" class="bouton bouton-doux" data-action="annuler-edition">Annuler</button>'
         : '') +
@@ -200,6 +488,8 @@
         '<article class="note' + (n.envoyee ? ' note-figee' : '') + (cochee ? ' note-choisie' : '') + '">' +
         '<div class="note-haut">' +
         '<span class="note-date">' + Core.dateFr(n.date) + '</span>' +
+        (n.genre === 'ticket' ? '<span class="badge-genre">Ticket</span>'
+          : n.genre === 'idee' ? '<span class="badge-genre badge-idee">Idée</span>' : '') +
         '<span class="note-cible">' + ech(n.cible_nom || 'Sans projet') + '</span>' +
         '</div>' +
         '<p class="note-titre">' + ech(Core.titreNote(n.texte)) + '</p>' +
@@ -454,12 +744,139 @@
     return (t.date_nature === 'rdv' ? 'RDV ' : '') + jour + heure;
   }
 
+  function libelleMaturite(m) {
+    return m === 'creuser' ? 'à creuser' : m === 'mure' ? 'mûre' : 'brut';
+  }
+
+  // -- Écran 4 : le Tableau à idées, en lecture seule (SPEC notes typées §4.5) --
+  // Même patron que les backlogs : projets → catégories → cartes, même instantané
+  // (`backlogs.json`), même date, même avertissement de fraîcheur (D16 de la spec
+  // d'origine), même bouton Rafraîchir.
+  function ecranIdees() {
+    var bandeau =
+      '<div class="bandeau-fraicheur">' +
+      '<p class="bandeau-titre">Rafraîchis pour voir l\'état à jour</p>' +
+      '<p class="bandeau-detail">' +
+      (S.backlogsGenereLe
+        ? 'dernier instantané du ' + Core.horodatageFr(S.backlogsGenereLe)
+        : 'aucun instantané reçu') +
+      '</p>' +
+      '<button type="button" class="bouton bouton-fort" data-action="importer-ref">Rafraîchir</button>' +
+      '</div>';
+
+    if (S.backlogs.length === 0) {
+      return (
+        bandeau +
+        '<section class="bloc">' +
+        '<p class="explication">Aucun instantané n\'a encore été reçu. Sur le PC, ouvre les ' +
+        'Réglages du Cockpit, section « Notes du téléphone », et clique « Pousser ' +
+        'maintenant » : le fichier <code>backlogs.json</code> apparaît dans le dossier Drive. ' +
+        'Charge-le ici avec le bouton Rafraîchir.</p>' +
+        '</section>'
+      );
+    }
+
+    // Instantané d'AVANT la tranche : les idées n'y sont pas (§4.6).
+    var enrichi = S.backlogs.some(function (p) { return Array.isArray(p.categories); });
+    if (!enrichi) {
+      return (
+        bandeau +
+        '<section class="bloc">' +
+        '<p class="explication">Cet instantané date d\'avant les idées. Sur le PC : ' +
+        '« Pousser maintenant », puis recharge <code>backlogs.json</code> ici.</p>' +
+        '</section>'
+      );
+    }
+
+    if (S.ideeProjet === null) {
+      return (
+        bandeau +
+        '<section class="bloc">' +
+        '<h2 class="titre-bloc">Projets</h2>' +
+        S.backlogs
+          .map(function (p) {
+            var categories = Core.categoriesDe(p) || [];
+            var nb = categories.reduce(function (t, c) { return t + (c.idees || []).length; }, 0);
+            return (
+              '<button type="button" class="ligne-projet" data-action="idees-projet" data-cle="' +
+              ech(p.cle) + '" style="--teinte:' + ech(p.couleur || '#8A8F94') + '">' +
+              '<span class="ligne-projet-nom">' + ech(p.nom) + '</span>' +
+              '<span class="ligne-projet-compte">' + nb + '</span>' +
+              '</button>'
+            );
+          })
+          .join('') +
+        '</section>'
+      );
+    }
+
+    var projet = S.backlogs.filter(function (p) { return p.cle === S.ideeProjet; })[0];
+    if (!projet) {
+      S.ideeProjet = null;
+      return ecranIdees();
+    }
+    var categories = Core.categoriesDe(projet) || [];
+    return (
+      bandeau +
+      '<section class="bloc">' +
+      '<button type="button" class="bouton bouton-doux" data-action="idees-retour">← Tous les projets</button>' +
+      '<h2 class="titre-bloc titre-projet" style="--teinte:' + ech(projet.couleur || '#8A8F94') + '">' +
+      ech(projet.nom) + '</h2>' +
+      (categories.length === 0
+        ? '<p class="explication">Ce projet n\'a pas encore de catégorie d\'idées.</p>'
+        : categories
+            .map(function (categorie, index) {
+              var ouverte = S.categorieOuverte === index;
+              var idees = categorie.idees || [];
+              return (
+                '<div class="colonne">' +
+                '<button type="button" class="colonne-entete" data-action="idees-categorie" data-index="' + index + '"' +
+                ' style="--teinte:' + ech(categorie.couleur || '#8A8F94') + '">' +
+                '<span class="colonne-nom">' + ech(categorie.libelle) +
+                (categorie.famille ? ' <span class="colonne-portee">' + ech(categorie.famille) + '</span>' : '') +
+                '</span>' +
+                '<span class="colonne-compte">' + idees.length + '</span>' +
+                '<span class="colonne-fleche">' + (ouverte ? '▾' : '▸') + '</span>' +
+                '</button>' +
+                (ouverte
+                  ? '<div class="colonne-tickets">' +
+                    (idees.length === 0
+                      ? '<p class="explication">Catégorie vide.</p>'
+                      : idees
+                          .map(function (idee, i) {
+                            return (
+                              '<button type="button" class="ticket" data-action="idees-carte"' +
+                              ' data-categorie="' + index + '" data-index="' + i + '">' +
+                              '<span class="ticket-titre">' +
+                              (idee.coup_de_coeur ? '<span class="idee-coeur">★</span> ' : '') +
+                              ech(idee.titre) + '</span>' +
+                              '<span class="ticket-bas">' +
+                              '<span class="idee-maturite idee-maturite-' + ech(idee.maturite || 'brut') + '">' +
+                              libelleMaturite(idee.maturite) + '</span>' +
+                              '</span>' +
+                              '</button>'
+                            );
+                          })
+                          .join('')) +
+                    '</div>'
+                  : '') +
+                '</div>'
+              );
+            })
+            .join('')) +
+      '</section>'
+    );
+  }
+
   // -- Calques : calendrier, confirmation, détail d'un ticket, message --
   function calques() {
     var sortie = '';
 
     if (S.calendrier) {
       var cases = Core.grilleMois(S.calendrier.annee, S.calendrier.mois);
+      // Le calendrier sert deux champs : la date de saisie de la note, ou l'échéance /
+      // le jour du rendez-vous de la fiche Ticket (SPEC notes typées §4.2).
+      var choisie = S.calendrier.cible === 'fiche' ? S.fiche.date_valeur : S.date;
       sortie +=
         '<div class="calque" data-action="cal-fermer">' +
         '<div class="feuille" data-stop="1">' +
@@ -474,7 +891,7 @@
           .map(function (c) {
             return (
               '<button type="button" class="cal-case' + (c.horsMois ? ' cal-hors' : '') +
-              (c.iso === S.date ? ' cal-choisie' : '') + '" data-action="cal-jour" data-iso="' + c.iso + '">' +
+              (c.iso === choisie ? ' cal-choisie' : '') + '" data-action="cal-jour" data-iso="' + c.iso + '">' +
               c.jour + '</button>'
             );
           })
@@ -499,6 +916,26 @@
           : '<p class="explication">Pas de description.</p>') +
         '<p class="explication">Lecture seule : le téléphone ne modifie jamais un backlog.</p>' +
         '<button type="button" class="bouton bouton-doux" data-action="fermer-ticket">Fermer</button>' +
+        '</div></div>';
+    }
+
+    // Détail d'une idée (§4.5) — même feuille que le détail d'un ticket, lecture seule.
+    if (S.idee) {
+      sortie +=
+        '<div class="calque" data-action="fermer-idee">' +
+        '<div class="feuille" data-stop="1">' +
+        '<p class="ticket-colonne">' + ech(S.idee.categorie) +
+        (S.idee.famille ? ' · ' + ech(S.idee.famille) : '') + '</p>' +
+        '<h3 class="ticket-detail-titre">' +
+        (S.idee.coup_de_coeur ? '<span class="idee-coeur">★</span> ' : '') +
+        ech(S.idee.titre) + '</h3>' +
+        '<p class="idee-maturite idee-maturite-' + ech(S.idee.maturite || 'brut') + '">' +
+        'Maturité : ' + libelleMaturite(S.idee.maturite) + '</p>' +
+        (S.idee.description
+          ? '<p class="ticket-detail-description">' + ech(S.idee.description) + '</p>'
+          : '<p class="explication">Pas de description.</p>') +
+        '<p class="explication">Lecture seule : le téléphone ne modifie jamais le Tableau à idées.</p>' +
+        '<button type="button" class="bouton bouton-doux" data-action="fermer-idee">Fermer</button>' +
         '</div></div>';
     }
 
@@ -548,7 +985,10 @@
 
   function render() {
     var corps =
-      S.ecran === 'note' ? ecranNote() : S.ecran === 'file' ? ecranFile() : ecranBacklogs();
+      S.ecran === 'note' ? ecranNote()
+        : S.ecran === 'file' ? ecranFile()
+          : S.ecran === 'idees' ? ecranIdees()
+            : ecranBacklogs();
     racine().innerHTML = entete() + onglets() + '<main class="contenu">' + corps + '</main>' + calques();
   }
 
@@ -565,6 +1005,10 @@
 
   function enregistrer() {
     lireSaisie();
+    if (S.genre === 'ticket' || S.genre === 'idee') {
+      enregistrerTypee();
+      return;
+    }
     if (Core.noteVide(S.texte)) {
       signaler('Note vide : écris quelque chose avant d\'enregistrer.');
       return;
@@ -580,6 +1024,9 @@
         date: S.date,
         cible: S.cible,
         cible_nom: S.cibleNom,
+        // Une note typée re-enregistrée en note libre le redevient VRAIMENT (§4.4).
+        genre: 'note',
+        charge: null,
       })
         .then(function () {
           S.edition = null;
@@ -610,11 +1057,79 @@
       .catch(function (e) { signaler(String(e.message || e)); });
   }
 
-  // Après un enregistrement : le texte repart à vide, la date à aujourd'hui, et le PROJET
-  // est conservé (on note souvent plusieurs choses de suite sur le même sujet).
+  // Enregistre un ticket ou une idée (SPEC notes typées §4.2-§4.3) : validation aux
+  // invariants du Cockpit, charge conforme au contrat, texte APLATI (D13). Un ticket ou
+  // une idée exige un projet (D1) — le garde-fou est revérifié ici, pas seulement grisé.
+  function enregistrerTypee() {
+    if (!S.cible) {
+      signaler('Choisis un projet : un ' + (S.genre === 'ticket' ? 'ticket' : 'idée') +
+        ' vise toujours un projet.');
+      return;
+    }
+    var erreur = S.genre === 'ticket'
+      ? Core.validerFicheTicket(S.fiche)
+      : Core.validerFicheIdee(S.fiche);
+    if (erreur) {
+      signaler(erreur);
+      return;
+    }
+    if (!Core.dateValide(S.date)) {
+      signaler('Date invalide.');
+      return;
+    }
+    var genre = S.genre;
+    var charge = genre === 'ticket' ? Core.chargeTicket(S.fiche) : Core.chargeIdee(S.fiche);
+    var texte = Core.texteDe(S.fiche);
+    var fait = genre === 'ticket' ? 'Ticket' : 'Idée';
+    Store.demanderPersistance();
+    if (S.edition) {
+      Store.modifierNote(S.edition, {
+        texte: texte,
+        date: S.date,
+        cible: S.cible,
+        cible_nom: S.cibleNom,
+        genre: genre,
+        charge: charge,
+      })
+        .then(function () {
+          S.edition = null;
+          remiseAZero();
+          return charger();
+        })
+        .then(function () { signaler(fait + (genre === 'idee' ? ' modifiée.' : ' modifié.')); })
+        .catch(function (e) { signaler(String(e.message || e)); });
+      return;
+    }
+    Store.prochaineSeq()
+      .then(function (seq) {
+        return Store.ajouterNote({
+          uuid: Core.uuid(),
+          texte: texte,
+          date: S.date,
+          cible: S.cible,
+          cible_nom: S.cibleNom,
+          cree_le: Core.horodatage(),
+          seq: seq,
+          genre: genre,
+          charge: charge,
+        });
+      })
+      .then(function () {
+        remiseAZero();
+        return charger();
+      })
+      .then(function () { signaler(fait + (genre === 'idee' ? ' enregistrée.' : ' enregistré.')); })
+      .catch(function (e) { signaler(String(e.message || e)); });
+  }
+
+  // Après un enregistrement : le texte et la fiche repartent à vide, la date à aujourd'hui,
+  // le sélecteur REVIENT à « Note » (D5) — et le PROJET est conservé (on note souvent
+  // plusieurs choses de suite sur le même sujet).
   function remiseAZero() {
     S.texte = '';
     S.date = Core.dateISO();
+    S.genre = 'note';
+    S.fiche = Core.ficheVierge();
   }
 
   // Renvoie `true` si le téléchargement a pu être déclenché. **À appeler SYNCHRONEMENT
@@ -779,6 +1294,8 @@
         S.cible = null;
         S.cibleNom = '';
       }
+      // Un genre devenu impossible (référentiel rechargé) retombe sur la note libre.
+      assainirGenre();
       render();
     });
   }
@@ -809,23 +1326,83 @@
       lireSaisie();
       S.cible = el.dataset.cle || null;
       S.cibleNom = el.dataset.nom || '';
+      // Les cibles de la fiche appartiennent au projet : en changer remet colonne et
+      // catégorie à choisir (titre, description, liens et options sont conservés).
+      S.fiche.colonne_id = null;
+      S.fiche.colonne_libelle = '';
+      S.fiche.categorie_id = null;
+      S.fiche.categorie_libelle = '';
+      assainirGenre();
+      render();
+    } else if (action === 'genre') {
+      lireSaisie();
+      S.genre = el.dataset.cle;
       render();
     } else if (action === 'ouvrir-calendrier') {
       lireSaisie();
       var base = Core.dateValide(S.date) ? S.date : Core.dateISO();
-      S.calendrier = { annee: Number(base.slice(0, 4)), mois: Number(base.slice(5, 7)) - 1 };
+      S.calendrier = { annee: Number(base.slice(0, 4)), mois: Number(base.slice(5, 7)) - 1, cible: 'note' };
+      render();
+    } else if (action === 'ouvrir-calendrier-fiche') {
+      var baseFiche = Core.dateValide(S.fiche.date_valeur) ? S.fiche.date_valeur : Core.dateISO();
+      S.calendrier = {
+        annee: Number(baseFiche.slice(0, 4)),
+        mois: Number(baseFiche.slice(5, 7)) - 1,
+        cible: 'fiche',
+      };
       render();
     } else if (action === 'cal-mois') {
       var delta = Number(el.dataset.delta);
       var d = new Date(S.calendrier.annee, S.calendrier.mois + delta, 1);
-      S.calendrier = { annee: d.getFullYear(), mois: d.getMonth() };
+      S.calendrier = { annee: d.getFullYear(), mois: d.getMonth(), cible: S.calendrier.cible };
       render();
     } else if (action === 'cal-jour') {
-      S.date = el.dataset.iso;
+      if (S.calendrier && S.calendrier.cible === 'fiche') {
+        S.fiche.date_valeur = el.dataset.iso;
+      } else {
+        S.date = el.dataset.iso;
+      }
       S.calendrier = null;
       render();
     } else if (action === 'cal-fermer') {
       S.calendrier = null;
+      render();
+    } else if (action === 'fiche-colonne') {
+      S.fiche.rdv = false;
+      S.fiche.colonne_id = Number(el.dataset.id);
+      S.fiche.colonne_libelle = el.dataset.libelle || '';
+      // L'heure n'a de sens que pour un rendez-vous ; l'échéance éventuelle reste.
+      S.fiche.heure = '';
+      render();
+    } else if (action === 'fiche-rdv') {
+      S.fiche.rdv = true;
+      S.fiche.colonne_id = null;
+      S.fiche.colonne_libelle = '';
+      render();
+    } else if (action === 'fiche-sans-echeance') {
+      S.fiche.date_valeur = '';
+      render();
+    } else if (action === 'fiche-rappel') {
+      S.fiche.rappel_home = el.checked === true;
+      render();
+    } else if (action === 'fiche-position') {
+      S.fiche.position = el.dataset.cle === 'haut' ? 'haut' : 'bas';
+      render();
+    } else if (action === 'fiche-categorie') {
+      S.fiche.categorie_id = Number(el.dataset.id);
+      S.fiche.categorie_libelle = el.dataset.libelle || '';
+      render();
+    } else if (action === 'fiche-maturite') {
+      S.fiche.maturite = el.dataset.cle;
+      render();
+    } else if (action === 'fiche-coeur') {
+      S.fiche.coup_de_coeur = el.checked === true;
+      render();
+    } else if (action === 'fiche-ajouter-lien') {
+      S.fiche.liens.push({ libelle: '', url: '' });
+      render();
+    } else if (action === 'fiche-retirer-lien') {
+      S.fiche.liens.splice(Number(el.dataset.index), 1);
       render();
     } else if (action === 'enregistrer') {
       enregistrer();
@@ -844,6 +1421,14 @@
       S.date = note.date;
       S.cible = note.cible;
       S.cibleNom = note.cible_nom || '';
+      // Une note typée rouvre SON formulaire, charge pré-remplie (§4.4).
+      if (note.genre === 'ticket' || note.genre === 'idee') {
+        S.genre = note.genre;
+        S.fiche = Core.ficheDepuisCharge(note.genre, note.charge);
+      } else {
+        S.genre = 'note';
+        S.fiche = Core.ficheVierge();
+      }
       S.ecran = 'note';
       render();
       window.scrollTo(0, 0);
@@ -967,6 +1552,33 @@
     } else if (action === 'fermer-ticket') {
       S.ticket = null;
       render();
+    } else if (action === 'idees-projet') {
+      S.ideeProjet = el.dataset.cle;
+      S.categorieOuverte = 0;
+      render();
+      window.scrollTo(0, 0);
+    } else if (action === 'idees-retour') {
+      S.ideeProjet = null;
+      S.categorieOuverte = null;
+      render();
+    } else if (action === 'idees-categorie') {
+      var rang = Number(el.dataset.index);
+      S.categorieOuverte = S.categorieOuverte === rang ? null : rang;
+      render();
+    } else if (action === 'idees-carte') {
+      var porteur = S.backlogs.filter(function (p) { return p.cle === S.ideeProjet; })[0];
+      var categories = porteur ? Core.categoriesDe(porteur) || [] : [];
+      var categorie = categories[Number(el.dataset.categorie)];
+      var idee = categorie && (categorie.idees || [])[Number(el.dataset.index)];
+      if (!idee) return;
+      S.idee = Object.assign({}, idee, {
+        categorie: categorie.libelle,
+        famille: categorie.famille || null,
+      });
+      render();
+    } else if (action === 'fermer-idee') {
+      S.idee = null;
+      render();
     }
   }
 
@@ -984,7 +1596,22 @@
     });
     racine().addEventListener('click', surClic);
     racine().addEventListener('input', function (e) {
-      if (e.target && e.target.id === 'saisie') S.texte = e.target.value;
+      var champ = e.target;
+      if (!champ) return;
+      if (champ.id === 'saisie') {
+        S.texte = champ.value;
+        return;
+      }
+      // Champs de la fiche Ticket/Idée (data-champ) : l'état suit la frappe, SANS re-rendu
+      // — re-rendre à chaque touche ferait perdre le focus, comme pour la saisie libre.
+      var nom = champ.dataset && champ.dataset.champ;
+      if (!nom) return;
+      if (nom === 'lien-libelle' || nom === 'lien-url') {
+        var lien = S.fiche.liens[Number(champ.dataset.index)];
+        if (lien) lien[nom === 'lien-url' ? 'url' : 'libelle'] = champ.value;
+      } else {
+        S.fiche[nom] = champ.value;
+      }
     });
     document.getElementById('fichier-ref').addEventListener('change', function (e) {
       var fichier = e.target.files && e.target.files[0];

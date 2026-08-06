@@ -287,6 +287,169 @@
         egal(Core.insererSeparateur('', 0).texte, Core.SEPARATEUR + '\n');
       });
 
+      // ---- Notes typées (SPEC du 06-08-2026) : le lot v2 ----
+
+      function noteLibre(uuid) {
+        return { uuid: uuid, texte: 'libre', date: '2026-08-06', cible: null, cible_nom: '', cree_le: null };
+      }
+
+      test('un lot tout-libre reste en version 1', function () {
+        var lot = Core.buildLot([noteLibre('a'), noteLibre('b')], 'u', 'g');
+        egal(lot.version, 1);
+        vrai(!('genre' in lot.notes[0]), 'aucun champ genre sur une note libre');
+      });
+
+      test('un lot passe en version 2 dès qu\'une note est typée, genre et charge à bord', function () {
+        var ticket = {
+          uuid: 't', texte: 'Mixer', date: '2026-08-06', cible: 'proj:1', cible_nom: 'Musique',
+          cree_le: null, genre: 'ticket', charge: { titre: 'Mixer', colonne_id: 4 },
+          seq: 12,
+        };
+        var lot = Core.buildLot([noteLibre('a'), ticket], 'u', 'g');
+        egal(lot.version, 2);
+        egal(lot.notes[1].genre, 'ticket');
+        egal(lot.notes[1].charge.colonne_id, 4);
+        vrai(!('seq' in lot.notes[1]), 'seq ne fuite jamais dans le lot');
+        vrai(!('genre' in lot.notes[0]), 'la note libre du même lot reste nue');
+      });
+
+      // ---- Notes typées : la fiche Ticket ----
+
+      test('l\'heure maison accepte HH:MM réel et refuse le reste', function () {
+        vrai(Core.heureValide('09:30'));
+        vrai(Core.heureValide('23:59'));
+        vrai(!Core.heureValide('24:00'));
+        vrai(!Core.heureValide('9:30'));
+        vrai(!Core.heureValide('09h30'));
+        vrai(!Core.heureValide(''));
+      });
+
+      test('un ticket exige un titre, et une colonne ou un rendez-vous', function () {
+        var f = Core.ficheVierge();
+        vrai(Core.validerFicheTicket(f).indexOf('titre') >= 0);
+        f.titre = 'Mixer';
+        vrai(Core.validerFicheTicket(f).indexOf('colonne') >= 0);
+        f.colonne_id = 4;
+        egal(Core.validerFicheTicket(f), null);
+      });
+
+      test('un rendez-vous exige date ET heure — l\'invariant du Cockpit', function () {
+        var f = Core.ficheVierge();
+        f.titre = 'Studio';
+        f.rdv = true;
+        vrai(Core.validerFicheTicket(f) !== null);
+        f.date_valeur = '2026-08-20';
+        vrai(Core.validerFicheTicket(f) !== null, 'la date seule ne suffit pas');
+        f.heure = '09:30';
+        egal(Core.validerFicheTicket(f), null);
+      });
+
+      test('la charge d\'un ticket est conforme au contrat, échéance comme rendez-vous', function () {
+        var f = Core.ficheVierge();
+        f.titre = ' Mixer ';
+        f.colonne_id = 4;
+        f.colonne_libelle = 'En cours';
+        f.date_valeur = '2026-08-12';
+        f.rappel_home = true;
+        f.liens = [{ libelle: 'Doc', url: 'https://exemple.fr' }, { libelle: 'vide', url: '  ' }];
+        var c = Core.chargeTicket(f);
+        egal(c.titre, 'Mixer');
+        egal(c.date_nature, 'echeance');
+        egal(c.date_valeur, '2026-08-12');
+        egal(c.liens.length, 1, 'un lien sans URL n\'existe pas');
+        f.rdv = true;
+        f.heure = '09:30';
+        c = Core.chargeTicket(f);
+        egal(c.colonne_id, null, 'un rendez-vous vit hors colonne');
+        egal(c.date_nature, 'rdv');
+        egal(c.date_valeur, '2026-08-12 09:30');
+      });
+
+      test('sans échéance choisie, la charge n\'a ni nature ni valeur de date', function () {
+        var f = Core.ficheVierge();
+        f.titre = 'Simple';
+        f.colonne_id = 2;
+        var c = Core.chargeTicket(f);
+        egal(c.date_nature, null);
+        egal(c.date_valeur, null);
+      });
+
+      // ---- Notes typées : la fiche Idée ----
+
+      test('une idée exige un titre et une catégorie', function () {
+        var f = Core.ficheVierge();
+        vrai(Core.validerFicheIdee(f).indexOf('titre') >= 0);
+        f.titre = 'Clip';
+        vrai(Core.validerFicheIdee(f).indexOf('catégorie') >= 0);
+        f.categorie_id = 7;
+        egal(Core.validerFicheIdee(f), null);
+      });
+
+      test('la charge d\'une idée normalise maturité et position', function () {
+        var f = Core.ficheVierge();
+        f.titre = 'Clip';
+        f.categorie_id = 7;
+        f.maturite = 'nimporte';
+        f.position = 'haut';
+        f.coup_de_coeur = true;
+        var c = Core.chargeIdee(f);
+        egal(c.maturite, 'brut', 'une maturité inconnue retombe sur brut');
+        egal(c.position, 'haut');
+        egal(c.coup_de_coeur, true);
+      });
+
+      // ---- Notes typées : le texte aplati et l'aller-retour de la fiche ----
+
+      test('le texte aplati porte titre, description et liens (D13)', function () {
+        var f = Core.ficheVierge();
+        f.titre = 'Mixer';
+        f.description = 'Le refrain';
+        f.liens = [{ libelle: 'Doc', url: 'https://exemple.fr' }, { libelle: '', url: 'https://a.fr' }];
+        egal(Core.texteDe(f), 'Mixer\n\nLe refrain\n\nDoc — https://exemple.fr\nhttps://a.fr');
+        var court = Core.ficheVierge();
+        court.titre = 'Seul';
+        egal(Core.texteDe(court), 'Seul');
+      });
+
+      test('ficheDepuisCharge rouvre le bon formulaire, rendez-vous découpé', function () {
+        var f = Core.ficheDepuisCharge('ticket', {
+          titre: 'Studio', description: 'd', date_nature: 'rdv', date_valeur: '2026-08-20 09:30',
+          rappel_home: true, position: 'haut', liens: [{ libelle: 'x', url: 'https://x.fr' }],
+        });
+        vrai(f.rdv);
+        egal(f.date_valeur, '2026-08-20');
+        egal(f.heure, '09:30');
+        egal(f.position, 'haut');
+        egal(f.liens.length, 1);
+        var i = Core.ficheDepuisCharge('idee', { titre: 'Clip', categorie_id: 7, maturite: 'creuser', coup_de_coeur: true });
+        egal(i.categorie_id, 7);
+        egal(i.maturite, 'creuser');
+        vrai(i.coup_de_coeur);
+        egal(Core.ficheDepuisCharge('ticket', null).titre, '', 'charge bancale : fiche vierge, jamais une erreur');
+      });
+
+      // ---- Notes typées : ce que le référentiel permet (§4.6) ----
+
+      test('colonnesCiblables exige les ids — un vieil instantané rend une liste vide', function () {
+        var vieux = { colonnes: [{ libelle: 'RDV', systeme: true }, { libelle: 'En cours' }] };
+        egal(Core.colonnesCiblables(vieux), []);
+        var neuf = {
+          colonnes: [
+            { libelle: 'RDV', systeme: true },
+            { id: 4, libelle: 'En cours', terminale: false },
+            { id: 5, libelle: 'Fait', terminale: true },
+          ],
+        };
+        egal(Core.colonnesCiblables(neuf).length, 2, 'la pseudo-colonne RDV est exclue');
+        egal(Core.colonnesCiblables(null), []);
+      });
+
+      test('categoriesDe distingue « instantané d\'avant » (null) et « aucune catégorie » ([])', function () {
+        egal(Core.categoriesDe({ colonnes: [] }), null);
+        egal(Core.categoriesDe({ categories: [] }), []);
+        egal(Core.categoriesDe({ categories: [{ id: 1, libelle: 'Concepts', idees: [] }] }).length, 1);
+      });
+
       // ---- Bilan ----
 
       var echecs = resultats.filter(function (r) { return !r.ok; });

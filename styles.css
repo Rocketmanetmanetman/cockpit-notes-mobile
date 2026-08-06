@@ -753,3 +753,153 @@ code {
   line-height: 1.4;
   box-shadow: 0 6px 24px rgba(38, 40, 42, 0.35);
 }
+
+/* ---- Notes typées (SPEC du 06-08-2026) : sélecteur de genre et fiches ---- */
+
+.bloc-segments {
+  padding: 14px;
+}
+
+.segments {
+  display: flex;
+  gap: 8px;
+}
+
+.segment {
+  flex: 1;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--encre);
+  background: rgba(52, 80, 90, 0.07);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 14px 6px;
+  cursor: pointer;
+}
+
+.segment-actif {
+  background: var(--sauge);
+  color: #ffffff;
+}
+
+.segment:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.explication-segments {
+  margin: 12px 2px 0;
+  font-size: 15px;
+}
+
+/* Champs des fiches Ticket/Idée — même peau que la grande saisie. */
+.champ {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 18px;
+  color: var(--encre);
+  background: rgba(52, 80, 90, 0.05);
+  border: 1px solid var(--trait);
+  border-radius: 12px;
+  padding: 13px 14px;
+}
+
+.champ:focus {
+  outline: 3px solid var(--sauge);
+  outline-offset: 1px;
+}
+
+.saisie-fiche {
+  margin-top: 12px;
+}
+
+/* L'heure d'un rendez-vous : saisie maison, jamais le sélecteur système. */
+.rangee-outils .champ-heure {
+  display: inline-block;
+  width: 110px;
+  margin-top: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.pastille-rdv {
+  --teinte: #34505a;
+}
+
+/* Liens web : libellé + URL + retrait, en rangées. */
+.rangee-lien {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rangee-lien .champ-lien {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+}
+
+.rangee-lien .bouton-retirer {
+  display: block;
+  width: 48px;
+  flex: none;
+  margin-top: 0;
+  padding: 0;
+  border-radius: 12px;
+}
+
+/* Interrupteurs (rappel Home, coup de cœur) : une grosse ligne cochable. */
+.choix-ligne {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 17px;
+  font-weight: 600;
+  padding: 6px 2px;
+  cursor: pointer;
+}
+
+.choix-ligne input {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--sauge);
+}
+
+/* Badges de la file : une note qui deviendra ticket ou idée se voit d'un coup d'œil. */
+.badge-genre {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: var(--ardoise);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.badge-idee {
+  background: #c98a2d;
+}
+
+/* Écran « Idées » : l'étoile et la maturité d'une carte. */
+.idee-coeur {
+  color: #c98a2d;
+}
+
+.idee-maturite {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: rgba(38, 40, 42, 0.55);
+}
+
+.idee-maturite-creuser {
+  color: #c98a2d;
+}
+
+.idee-maturite-mure {
+  color: var(--sauge);
+}
