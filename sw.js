@@ -9,7 +9,7 @@
 // copie et la mise à jour ne parvient jamais au téléphone — le piège de développement le
 // plus coûteux de ce genre d'application. `mobile/publier.ps1` refuse de publier tant que
 // cette version n'a pas changé.
-var CACHE = 'cockpit-notes-v10';
+var CACHE = 'cockpit-notes-v11';
 
 var COQUILLE = [
   './',
@@ -43,6 +43,19 @@ self.addEventListener('activate', function (evenement) {
       );
     }).then(function () {
       return self.clients.claim();
+    }),
+  );
+});
+
+// Un appui sur la notification « notes à envoyer » (avenant A8) ramène l'application au
+// premier plan — ou l'ouvre. C'est le seul rôle du service worker dans cette histoire :
+// la notification est posée par la PAGE, jamais par un serveur (il n'y en a pas).
+self.addEventListener('notificationclick', function (evenement) {
+  evenement.notification.close();
+  evenement.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (fenetres) {
+      if (fenetres.length > 0) return fenetres[0].focus();
+      return self.clients.openWindow('./');
     }),
   );
 });

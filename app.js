@@ -67,8 +67,15 @@
     // savoir depuis le téléphone si une mise à jour est bien arrivée — le service worker
     // pouvant resservir l'ancienne version sans le dire.
     version: null,
+    // Message fugace. `ton` colore le fond : 'erreur' (rouge), 'succes' (vert), 'neutre'
+    // (encre) — les couleurs de validation classiques (avenant A4).
     message: null,
+    tonMessage: 'neutre',
     minuteurMessage: null,
+    // Bandeau de succès de l'écran Écrire (avenant A3) : après un enregistrement, le
+    // retour à une édition vierge se voit — effacé à la prochaine saisie ou tout seul.
+    succes: null,
+    minuteurSucces: null,
   };
 
   function racine() {
@@ -83,14 +90,36 @@
       .replace(/"/g, '&quot;');
   }
 
-  function signaler(texte) {
+  function signaler(texte, ton) {
     S.message = texte;
+    S.tonMessage = ton === 'erreur' || ton === 'succes' ? ton : 'neutre';
     if (S.minuteurMessage) clearTimeout(S.minuteurMessage);
     S.minuteurMessage = setTimeout(function () {
       S.message = null;
       render();
-    }, 2600);
+    }, S.tonMessage === 'erreur' ? 4200 : 2600);
     render();
+  }
+
+  // Les couleurs de validation classiques (avenant A4) : rouge pour ce qui a échoué,
+  // vert pour ce qui a abouti — le neutre reste aux informations.
+  function signalerErreur(texte) {
+    signaler(texte, 'erreur');
+  }
+
+  function signalerSucces(texte) {
+    signaler(texte, 'succes');
+  }
+
+  // Bandeau de succès de l'écran Écrire (avenant A3) : plus durable que le message
+  // fugace, à l'endroit exact où l'œil revient — le formulaire redevenu vierge.
+  function poserSucces(texte) {
+    S.succes = texte;
+    if (S.minuteurSucces) clearTimeout(S.minuteurSucces);
+    S.minuteurSucces = setTimeout(function () {
+      S.succes = null;
+      render();
+    }, 6000);
   }
 
   // ---- Rendu -----------------------------------------------------------------
@@ -346,7 +375,8 @@
       champsTitreDescription('ticket', enEdition) +
       '<section class="bloc">' +
       '<h2 class="titre-bloc">Colonne</h2>' +
-      '<div class="pastilles">' + pastillesColonnes + pastilleRdv + '</div>' +
+      // Grille STRICTE à deux colonnes (avenant A6) — alignée, rectangulaire, rangée.
+      '<div class="pastilles pastilles-rangees">' + pastillesColonnes + pastilleRdv + '</div>' +
       sansColonnes +
       '</section>' +
       blocDate +
@@ -386,7 +416,7 @@
       champsTitreDescription('idee', enEdition) +
       '<section class="bloc">' +
       '<h2 class="titre-bloc">Catégorie</h2>' +
-      '<div class="pastilles">' + pastillesCategories + '</div>' +
+      '<div class="pastilles pastilles-rangees">' + pastillesCategories + '</div>' +
       sansCategories +
       '</section>' +
       '<section class="bloc">' +
@@ -451,11 +481,12 @@
           : 'Enregistrer la note';
 
     return (
+      (S.succes ? '<div class="bandeau-succes" role="status">✓ ' + ech(S.succes) + '</div>' : '') +
       (avertissement === '' ? '' : '<section class="bloc">' + avertissement + '</section>') +
       selecteurGenre() +
       corps +
 
-      '<section class="bloc">' +
+      '<section class="bloc" id="bloc-projet">' +
       '<h2 class="titre-bloc">Projet</h2>' +
       '<div class="pastilles">' + sansProjet + pastilles + '</div>' +
       '</section>' +
@@ -552,7 +583,10 @@
       '<h2 class="titre-bloc">À envoyer' + (attente.length ? ' · ' + attente.length : '') + '</h2>' +
       (attente.length === 0
         ? '<p class="explication">Rien en attente.</p>'
-        : attente.map(carte).join('')) +
+        // `carte(n, false)` EXPLICITE (avenant A7) : `map(carte)` passait l'index du
+        // tableau comme drapeau, et la case « Renvoyer celle-ci » poussait sur des notes
+        // jamais envoyées à partir de la deuxième.
+        : attente.map(function (n) { return carte(n, false); }).join('')) +
       '</section>' +
 
       '<section class="bloc">' +
@@ -978,9 +1012,29 @@
     }
 
     if (S.message) {
-      sortie += '<div class="message">' + ech(S.message) + '</div>';
+      sortie += '<div class="message message-' + S.tonMessage + '">' + ech(S.message) + '</div>';
     }
     return sortie;
+  }
+
+  // Bandeau du projet courant (avenant A1) : collé sous les onglets, sur TOUS les écrans —
+  // on sait toujours pour qui on écrit. Un appui ramène au choix du projet.
+  function bandeauProjet() {
+    var teinte = null;
+    if (S.cible) {
+      var projet = S.projets.filter(function (p) { return p.cle === S.cible; })[0];
+      teinte = (projet && projet.couleur) || '#8A8F94';
+    }
+    return (
+      '<button type="button" class="bandeau-projet' + (S.cible ? '' : ' bandeau-projet-sans') +
+      '" data-action="aller-projet"' +
+      (teinte ? ' style="--teinte:' + ech(teinte) + '"' : '') + '>' +
+      '<span class="bandeau-projet-libelle">Projet</span>' +
+      (S.cible
+        ? '<span class="bandeau-projet-point" aria-hidden="true"></span><span class="bandeau-projet-nom">' + ech(S.cibleNom) + '</span>'
+        : '<span class="bandeau-projet-nom">Sans projet</span>') +
+      '</button>'
+    );
   }
 
   function render() {
@@ -989,7 +1043,16 @@
         : S.ecran === 'file' ? ecranFile()
           : S.ecran === 'idees' ? ecranIdees()
             : ecranBacklogs();
-    racine().innerHTML = entete() + onglets() + '<main class="contenu">' + corps + '</main>' + calques();
+    // La position de défilement survit au re-rendu (avenant A2) : sans cela, la fermeture
+    // du clavier ou un contenu un instant plus court faisait remonter la page au premier
+    // appui sur « Enregistrer » ou « + Ajouter un lien ». Les remontées volontaires
+    // (changement d'onglet) appellent scrollTo APRÈS render, elles gardent le dernier mot.
+    var defilement = window.scrollY;
+    racine().innerHTML =
+      entete() +
+      '<div class="colle">' + onglets() + bandeauProjet() + '</div>' +
+      '<main class="contenu">' + corps + '</main>' + calques();
+    window.scrollTo(0, defilement);
   }
 
   // ---- Actions ---------------------------------------------------------------
@@ -1010,11 +1073,11 @@
       return;
     }
     if (Core.noteVide(S.texte)) {
-      signaler('Note vide : écris quelque chose avant d\'enregistrer.');
+      signalerErreur('Note vide : écris quelque chose avant d\'enregistrer.');
       return;
     }
     if (!Core.dateValide(S.date)) {
-      signaler('Date invalide.');
+      signalerErreur('Date invalide.');
       return;
     }
     Store.demanderPersistance();
@@ -1031,10 +1094,10 @@
         .then(function () {
           S.edition = null;
           remiseAZero();
+          poserSucces('Note modifiée — elle est dans la File.');
           return charger();
         })
-        .then(function () { signaler('Note modifiée.'); })
-        .catch(function (e) { signaler(String(e.message || e)); });
+        .catch(function (e) { signalerErreur(String(e.message || e)); });
       return;
     }
     Store.prochaineSeq()
@@ -1051,10 +1114,11 @@
       })
       .then(function () {
         remiseAZero();
+        poserSucces('Note enregistrée — dans la File, prête à envoyer.');
+        demanderNotification();
         return charger();
       })
-      .then(function () { signaler('Note enregistrée.'); })
-      .catch(function (e) { signaler(String(e.message || e)); });
+      .catch(function (e) { signalerErreur(String(e.message || e)); });
   }
 
   // Enregistre un ticket ou une idée (SPEC notes typées §4.2-§4.3) : validation aux
@@ -1062,7 +1126,7 @@
   // une idée exige un projet (D1) — le garde-fou est revérifié ici, pas seulement grisé.
   function enregistrerTypee() {
     if (!S.cible) {
-      signaler('Choisis un projet : un ' + (S.genre === 'ticket' ? 'ticket' : 'idée') +
+      signalerErreur('Choisis un projet : un ' + (S.genre === 'ticket' ? 'ticket' : 'idée') +
         ' vise toujours un projet.');
       return;
     }
@@ -1070,11 +1134,11 @@
       ? Core.validerFicheTicket(S.fiche)
       : Core.validerFicheIdee(S.fiche);
     if (erreur) {
-      signaler(erreur);
+      signalerErreur(erreur);
       return;
     }
     if (!Core.dateValide(S.date)) {
-      signaler('Date invalide.');
+      signalerErreur('Date invalide.');
       return;
     }
     var genre = S.genre;
@@ -1094,10 +1158,10 @@
         .then(function () {
           S.edition = null;
           remiseAZero();
+          poserSucces(fait + (genre === 'idee' ? ' modifiée' : ' modifié') + ' — dans la File.');
           return charger();
         })
-        .then(function () { signaler(fait + (genre === 'idee' ? ' modifiée.' : ' modifié.')); })
-        .catch(function (e) { signaler(String(e.message || e)); });
+        .catch(function (e) { signalerErreur(String(e.message || e)); });
       return;
     }
     Store.prochaineSeq()
@@ -1116,10 +1180,14 @@
       })
       .then(function () {
         remiseAZero();
+        poserSucces(
+          fait + (genre === 'idee' ? ' enregistrée' : ' enregistré') +
+          ' — dans la File, prêt' + (genre === 'idee' ? 'e' : '') + ' à envoyer.',
+        );
+        demanderNotification();
         return charger();
       })
-      .then(function () { signaler(fait + (genre === 'idee' ? ' enregistrée.' : ' enregistré.')); })
-      .catch(function (e) { signaler(String(e.message || e)); });
+      .catch(function (e) { signalerErreur(String(e.message || e)); });
   }
 
   // Après un enregistrement : le texte et la fiche repartent à vide, la date à aujourd'hui,
@@ -1130,6 +1198,48 @@
     S.date = Core.dateISO();
     S.genre = 'note';
     S.fiche = Core.ficheVierge();
+  }
+
+  // Notification locale « X notes à envoyer » (avenant A8). Sans serveur — doctrine : le
+  // téléphone ne parle à personne —, elle ne peut PAS naître application fermée : elle se
+  // pose et se met à jour quand l'application est OUVERTE, et une fois posée elle RESTE
+  // dans la barre du téléphone jusqu'à ce que la file soit vidée. Silencieuse, une seule
+  // (même `tag`), fermée d'elle-même à l'envoi.
+  function mettreAJourNotificationEnvoi() {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+    if (Notification.permission !== 'granted') return;
+    navigator.serviceWorker
+      .getRegistration()
+      .then(function (enregistrement) {
+        if (!enregistrement || typeof enregistrement.showNotification !== 'function') return;
+        var nb = nbEnAttente();
+        if (nb === 0) {
+          enregistrement.getNotifications({ tag: 'cockpit-notes-a-envoyer' }).then(function (posees) {
+            posees.forEach(function (n) { n.close(); });
+          });
+          return;
+        }
+        enregistrement.showNotification('Notes Cockpit', {
+          body: nb === 1
+            ? "1 note attend d'être envoyée au PC."
+            : nb + " notes attendent d'être envoyées au PC.",
+          tag: 'cockpit-notes-a-envoyer',
+          icon: './icon.svg',
+          badge: './icon.svg',
+          silent: true,
+        });
+      })
+      .catch(function () {});
+  }
+
+  // La permission se demande sur un GESTE — le premier enregistrement —, jamais à
+  // l'ouverture. Refusée : plus jamais redemandée (le navigateur s'en charge), et tout
+  // le reste fonctionne sans elle.
+  function demanderNotification() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().then(mettreAJourNotificationEnvoi).catch(function () {});
+    }
   }
 
   // Renvoie `true` si le téléchargement a pu être déclenché. **À appeler SYNCHRONEMENT
@@ -1200,7 +1310,7 @@
     S.lotPret = null;
     if (!pret) return;
     if (!telecharger(pret.nom, pret.json)) {
-      signaler("Le téléchargement n'a pas démarré. Rien n'a été marqué comme envoyé — réessaie.");
+      signalerErreur("Le téléchargement n'a pas démarré. Rien n'a été marqué comme envoyé — réessaie.");
       return;
     }
     S.dernierLot = { nom: pret.nom, json: pret.json, envoye_le: pret.envoye_le, nb: pret.nb };
@@ -1211,7 +1321,7 @@
         S.depot = { nom: pret.nom, nb: pret.nb };
         render();
       })
-      .catch(function (e) { signaler(String(e.message || e)); });
+      .catch(function (e) { signalerErreur(String(e.message || e)); });
   }
 
   function chargerFichierReferentiel(fichier) {
@@ -1220,7 +1330,7 @@
       var texte = String(lecteur.result);
       var resultat = Core.parseReferentiel(texte);
       if (!resultat.ok) {
-        signaler(resultat.erreur);
+        signalerErreur(resultat.erreur);
         return;
       }
       var nom = resultat.genre === 'projets' ? 'Projets' : 'Backlogs';
@@ -1230,9 +1340,9 @@
         Store.enregistrerReferentiel(resultat.genre, texte)
           .then(charger)
           .then(function () {
-            signaler(nom + ' mis à jour — instantané du ' + Core.horodatageFr(resultat.genere_le) + '.');
+            signalerSucces(nom + ' mis à jour — instantané du ' + Core.horodatageFr(resultat.genere_le) + '.');
           })
-          .catch(function (e) { signaler(String(e.message || e)); });
+          .catch(function (e) { signalerErreur(String(e.message || e)); });
       };
 
       // **Garde-fou du transport.** Google Drive sert parfois, sur le téléphone, une copie
@@ -1262,7 +1372,7 @@
       }
       appliquer();
     };
-    lecteur.onerror = function () { signaler('Lecture du fichier impossible.'); };
+    lecteur.onerror = function () { signalerErreur('Lecture du fichier impossible.'); };
     lecteur.readAsText(fichier);
   }
 
@@ -1297,6 +1407,8 @@
       // Un genre devenu impossible (référentiel rechargé) retombe sur la note libre.
       assainirGenre();
       render();
+      // La notification « X à envoyer » suit l'état réel de la file (avenant A8).
+      mettreAJourNotificationEnvoi();
     });
   }
 
@@ -1309,11 +1421,24 @@
     if (el.classList.contains('calque') && evenement.target.closest('.feuille')) return;
     var action = el.dataset.action;
 
+    // Le bandeau de succès s'efface au premier geste qui suit (avenant A3) — il a dit ce
+    // qu'il avait à dire.
+    if (S.succes && action !== 'aller-projet') {
+      S.succes = null;
+    }
+
     if (action === 'onglet') {
       lireSaisie();
       S.ecran = el.dataset.cible;
       render();
       window.scrollTo(0, 0);
+    } else if (action === 'aller-projet') {
+      // Le bandeau collant ramène au choix du projet (avenant A1).
+      lireSaisie();
+      S.ecran = 'note';
+      render();
+      var blocProjet = document.getElementById('bloc-projet');
+      if (blocProjet) blocProjet.scrollIntoView({ block: 'center' });
     } else if (action === 'separateur') {
       var champ = champSaisie();
       if (!champ) return;
@@ -1413,7 +1538,7 @@
     } else if (action === 'editer') {
       var note = S.notes.filter(function (n) { return n.uuid === el.dataset.uuid; })[0];
       if (!note || note.envoyee) {
-        signaler('Cette note a été envoyée : elle est figée.');
+        signalerErreur('Cette note a été envoyée : elle est figée.');
         return;
       }
       S.edition = note.uuid;
@@ -1441,8 +1566,8 @@
         action: function () {
           Store.supprimerNote(uuid)
             .then(charger)
-            .then(function () { signaler('Note supprimée.'); })
-            .catch(function (e) { signaler(String(e.message || e)); });
+            .then(function () { signalerSucces('Note supprimée.'); })
+            .catch(function (e) { signalerErreur(String(e.message || e)); });
         },
       };
       render();
@@ -1456,9 +1581,9 @@
       if (!S.dernierLot) {
         signaler('Aucun lot à retélécharger.');
       } else if (telecharger(S.dernierLot.nom, S.dernierLot.json)) {
-        signaler('Fichier retéléchargé : ' + S.dernierLot.nom);
+        signalerSucces('Fichier retéléchargé : ' + S.dernierLot.nom);
       } else {
-        signaler("Le téléchargement n'a pas démarré.");
+        signalerErreur("Le téléchargement n'a pas démarré.");
       }
     } else if (action === 'depot-fait') {
       S.depot = null;
@@ -1498,7 +1623,7 @@
         .filter(function (n) { return n.envoyee && S.selection && S.selection[n.uuid]; })
         .sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
       if (choisies.length === 0) {
-        signaler('Coche au moins une note.');
+        signalerErreur('Coche au moins une note.');
         return;
       }
       var quand = new Date();
@@ -1506,7 +1631,7 @@
       var nomLot = Core.lotFilename(idLot, quand);
       var jsonLot = Core.lotJson(Core.buildLot(choisies, idLot, Core.horodatage(quand)));
       if (!telecharger(nomLot, jsonLot)) {
-        signaler("Le téléchargement n'a pas démarré. Réessaie.");
+        signalerErreur("Le téléchargement n'a pas démarré. Réessaie.");
         return;
       }
       S.dernierLot = { nom: nomLot, json: jsonLot, envoye_le: Core.horodatage(quand), nb: choisies.length };
@@ -1588,16 +1713,19 @@
     // toute erreur non rattrapée VISIBLE — c'est le seul canal de diagnostic ici.
     window.addEventListener('error', function (e) {
       var detail = e && e.message ? e.message : 'erreur inconnue';
-      signaler('Anomalie de l\'application : ' + detail);
+      signalerErreur('Anomalie de l\'application : ' + detail);
     });
     window.addEventListener('unhandledrejection', function (e) {
       var r = e && e.reason;
-      signaler('Anomalie de l\'application : ' + ((r && r.message) || String(r)));
+      signalerErreur('Anomalie de l\'application : ' + ((r && r.message) || String(r)));
     });
     racine().addEventListener('click', surClic);
     racine().addEventListener('input', function (e) {
       var champ = e.target;
       if (!champ) return;
+      // Reprendre la saisie efface le bandeau de succès (sans re-rendu : il partira au
+      // prochain, le champ garde son focus).
+      if (S.succes) S.succes = null;
       if (champ.id === 'saisie') {
         S.texte = champ.value;
         return;
@@ -1620,7 +1748,7 @@
     });
     render();
     charger().catch(function (e) {
-      signaler('Stockage local indisponible : ' + String(e.message || e));
+      signalerErreur('Stockage local indisponible : ' + String(e.message || e));
     });
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').then(lireVersion).catch(function () {});
