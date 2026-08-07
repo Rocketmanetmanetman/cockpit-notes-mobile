@@ -76,6 +76,10 @@
     // retour à une édition vierge se voit — effacé à la prochaine saisie ou tout seul.
     succes: null,
     minuteurSucces: null,
+    // Ce que l'application a constaté en posant (ou non) la notification « X à envoyer »
+    // (second avenant) : affiché dans la File, pour qu'un défaut se LISE sur le téléphone
+    // au lieu de se deviner.
+    diagnosticNotif: 'pas encore tenté',
   };
 
   function racine() {
@@ -111,8 +115,11 @@
     signaler(texte, 'succes');
   }
 
-  // Bandeau de succès de l'écran Écrire (avenant A3) : plus durable que le message
-  // fugace, à l'endroit exact où l'œil revient — le formulaire redevenu vierge.
+  // Confirmation d'enregistrement, en DEUX endroits (second avenant) : le bandeau en tête
+  // de l'écran Écrire, qui dure — et le message flottant du bas, visible **où qu'on soit
+  // dans la page**, car le bandeau seul obligeait à remonter pour savoir si ça avait
+  // marché. Le bouton d'enregistrement étant désormais collé en bas, le message est là
+  // où le pouce vient de cliquer.
   function poserSucces(texte) {
     S.succes = texte;
     if (S.minuteurSucces) clearTimeout(S.minuteurSucces);
@@ -120,6 +127,7 @@
       S.succes = null;
       render();
     }, 6000);
+    signalerSucces(texte);
   }
 
   // ---- Rendu -----------------------------------------------------------------
@@ -497,13 +505,18 @@
       Core.dateFr(S.date) + '</button>' +
       '</section>' +
 
-      '<section class="bloc bloc-action">' +
-      '<button type="button" class="bouton bouton-fort" data-action="enregistrer">' +
-      libelleEnregistrer + '</button>' +
+      // BARRE D'ACTION COLLANTE (second avenant). Elle règle le « il faut appuyer deux
+      // fois » : le premier appui fermait le clavier virtuel, la page se réagençait sous
+      // le doigt, et le clic tombait à côté d'un bouton qui venait de bouger. Collée en
+      // bas de l'écran, la cible ne se dérobe plus — et elle est atteignable sans faire
+      // défiler, où qu'on soit dans un formulaire long.
+      '<div class="barre-action">' +
       (enEdition
         ? '<button type="button" class="bouton bouton-doux" data-action="annuler-edition">Annuler</button>'
         : '') +
-      '</section>'
+      '<button type="button" class="bouton bouton-fort" data-action="enregistrer">' +
+      libelleEnregistrer + '</button>' +
+      '</div>'
     );
   }
 
@@ -563,6 +576,11 @@
         : '') +
       '</section>' +
 
+      // État RÉEL des notifications (second avenant) : trois états possibles, un bouton
+      // qui agit, et la dernière tentative en clair — de quoi diagnostiquer depuis le
+      // téléphone, sans câble ni console.
+      blocNotifications(attente.length) +
+
       // Les deux sens du transport se suivent : ce qui part, puis ce qui arrive. La file
       // (historique) vient APRÈS — sans quoi, à la première utilisation, l'import se
       // retrouve enterré sous deux listes vides, hors de l'écran.
@@ -594,6 +612,40 @@
       (envoyees.length === 0
         ? '<p class="explication">Aucune note envoyée pour l\'instant.</p>'
         : blocEnvoyees(envoyees, carte)) +
+      '</section>'
+    );
+  }
+
+  // Le bloc « Notifications » de la File (second avenant). Il ne se contente pas de
+  // proposer : il DIT ce qui s'est passé à la dernière tentative, parce qu'une
+  // notification qui n'apparaît pas n'a autrement aucune trace visible.
+  function blocNotifications(nbAttente) {
+    var etat = etatNotifications();
+    var bouton = '';
+    if (etat.cle === 'a-autoriser') {
+      bouton = '<button type="button" class="bouton bouton-fort" data-action="activer-notif">' +
+        'Autoriser les notifications</button>';
+    } else if (etat.cle === 'ok') {
+      bouton = '<button type="button" class="bouton bouton-doux" data-action="tester-notif">' +
+        'Reposer la notification maintenant</button>';
+    }
+    return (
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">Notifications</h2>' +
+      '<p class="etat-notif etat-notif-' + etat.cle + '">' + ech(etat.texte) + '</p>' +
+      (etat.cle === 'ok'
+        ? '<p class="explication">' +
+          (nbAttente > 0
+            ? 'Un rappel « ' + nbAttente + ' note' + (nbAttente > 1 ? 's' : '') +
+              ' à envoyer » doit être présent dans la barre du téléphone.'
+            : 'Rien en attente : aucune notification à afficher.') +
+          '</p>'
+        : '') +
+      bouton +
+      '<p class="indicateur indicateur-diagnostic">Dernière tentative : ' +
+      ech(S.diagnosticNotif) + '</p>' +
+      '<p class="explication">L\'application ne parle à aucun serveur : le rappel se pose ' +
+      'quand elle est ouverte, puis reste dans la barre jusqu\'à l\'envoi.</p>' +
       '</section>'
     );
   }
@@ -1012,7 +1064,11 @@
     }
 
     if (S.message) {
-      sortie += '<div class="message message-' + S.tonMessage + '">' + ech(S.message) + '</div>';
+      // Sur l'écran Écrire, le message se pose AU-DESSUS de la barre d'action collante :
+      // sans quoi il la recouvrirait, juste sous le doigt.
+      sortie +=
+        '<div class="message message-' + S.tonMessage +
+        (S.ecran === 'note' ? ' message-au-dessus' : '') + '">' + ech(S.message) + '</div>';
     }
     return sortie;
   }
@@ -1211,35 +1267,79 @@
     navigator.serviceWorker
       .getRegistration()
       .then(function (enregistrement) {
-        if (!enregistrement || typeof enregistrement.showNotification !== 'function') return;
+        if (!enregistrement || typeof enregistrement.showNotification !== 'function') {
+          S.diagnosticNotif = 'service worker sans showNotification';
+          return;
+        }
         var nb = nbEnAttente();
         if (nb === 0) {
           enregistrement.getNotifications({ tag: 'cockpit-notes-a-envoyer' }).then(function (posees) {
             posees.forEach(function (n) { n.close(); });
           });
+          S.diagnosticNotif = 'file vide — aucune notification à poser';
           return;
         }
-        enregistrement.showNotification('Notes Cockpit', {
-          body: nb === 1
-            ? "1 note attend d'être envoyée au PC."
-            : nb + " notes attendent d'être envoyées au PC.",
-          tag: 'cockpit-notes-a-envoyer',
-          icon: './icon.svg',
-          badge: './icon.svg',
-          silent: true,
-        });
+        return enregistrement
+          .showNotification('Notes Cockpit', {
+            body: nb === 1
+              ? "1 note attend d'être envoyée au PC."
+              : nb + " notes attendent d'être envoyées au PC.",
+            tag: 'cockpit-notes-a-envoyer',
+            icon: './icon.svg',
+            badge: './icon.svg',
+            // `requireInteraction` : sur les plateformes qui l'honorent, la notification
+            // ne s'efface pas toute seule. `silent` a été RETIRÉ (06-08-2026, second
+            // avenant) : sur Android, une notification silencieuse est reléguée en
+            // priorité basse et peut ne jamais apparaître dans la barre.
+            requireInteraction: true,
+            renotify: false,
+          })
+          .then(function () {
+            S.diagnosticNotif = 'notification posée pour ' + nb + ' note(s)';
+          })
+          .catch(function (e) {
+            S.diagnosticNotif = 'refus du système : ' + String((e && e.message) || e);
+          });
       })
-      .catch(function () {});
+      .catch(function (e) {
+        S.diagnosticNotif = 'service worker indisponible : ' + String((e && e.message) || e);
+      });
   }
 
-  // La permission se demande sur un GESTE — le premier enregistrement —, jamais à
-  // l'ouverture. Refusée : plus jamais redemandée (le navigateur s'en charge), et tout
-  // le reste fonctionne sans elle.
+  // La permission se demande sur un GESTE — le premier enregistrement, ou le bouton du
+  // bloc « Notifications » de la File. Refusée : plus jamais redemandée (le navigateur
+  // s'en charge), et tout le reste fonctionne sans elle.
   function demanderNotification() {
     if (!('Notification' in window)) return;
     if (Notification.permission === 'default') {
-      Notification.requestPermission().then(mettreAJourNotificationEnvoi).catch(function () {});
+      Notification.requestPermission()
+        .then(function () {
+          mettreAJourNotificationEnvoi();
+          render();
+        })
+        .catch(function () {});
+    } else {
+      mettreAJourNotificationEnvoi();
     }
+  }
+
+  // Ce que l'application sait VRAIMENT de l'état des notifications (second avenant) :
+  // affiché dans la File, pour qu'un défaut se lise sur le téléphone au lieu de se
+  // deviner. Aucun réseau, aucune donnée sortante — juste des états locaux.
+  function etatNotifications() {
+    if (!('Notification' in window)) return { cle: 'absent', texte: 'Ce navigateur ne sait pas afficher de notification.' };
+    if (!('serviceWorker' in navigator)) return { cle: 'absent', texte: 'Service worker indisponible : notifications impossibles.' };
+    if (Notification.permission === 'denied') {
+      return {
+        cle: 'refuse',
+        texte: 'Refusées pour cette application. Ouvre les réglages du navigateur (ou de la PWA) ' +
+          'et autorise les notifications pour ce site, puis reviens ici.',
+      };
+    }
+    if (Notification.permission === 'default') {
+      return { cle: 'a-autoriser', texte: "Pas encore autorisées : appuie sur le bouton ci-dessous." };
+    }
+    return { cle: 'ok', texte: 'Autorisées.' };
   }
 
   // Renvoie `true` si le téléchargement a pu être déclenché. **À appeler SYNCHRONEMENT
@@ -1639,6 +1739,14 @@
       S.selection = null;
       S.depot = { nom: nomLot, nb: choisies.length };
       render();
+    } else if (action === 'activer-notif') {
+      demanderNotification();
+    } else if (action === 'tester-notif') {
+      // Repose la notification tout de suite, puis rend : le diagnostic affiché dit
+      // ce que le système a répondu.
+      mettreAJourNotificationEnvoi();
+      setTimeout(render, 400);
+      signaler('Notification reposée — regarde la barre du téléphone.');
     } else if (action === 'importer-ref') {
       document.getElementById('fichier-ref').click();
     } else if (action === 'confirmer') {
@@ -1718,6 +1826,16 @@
     window.addEventListener('unhandledrejection', function (e) {
       var r = e && e.reason;
       signalerErreur('Anomalie de l\'application : ' + ((r && r.message) || String(r)));
+    });
+    // LA cause du « il faut appuyer deux fois » (second avenant) : poser le doigt sur un
+    // bouton retire le focus du champ de saisie, le clavier virtuel se referme, la page
+    // se réagence — et au moment où le doigt se lève, le bouton n'est plus sous lui : le
+    // clic part dans le vide. Empêcher le comportement par défaut du `pointerdown` sur
+    // les BOUTONS SEULS garde le focus (donc le clavier, donc la mise en page) intact
+    // jusqu'à ce que le clic ait eu lieu. Les champs, cases et listes gardent le leur.
+    racine().addEventListener('pointerdown', function (e) {
+      var bouton = e.target.closest && e.target.closest('button[data-action]');
+      if (bouton) e.preventDefault();
     });
     racine().addEventListener('click', surClic);
     racine().addEventListener('input', function (e) {
