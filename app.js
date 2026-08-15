@@ -286,6 +286,41 @@
     );
   }
 
+  // La description d'une fiche est RICHE depuis le 15-08-2026 (demande de Julien : « n'est-ce
+  // pas possible de créer un ticket sur le téléphone avec les puces, le gras, l'italique ? »).
+  // Ce n'est plus un `textarea` mais une zone éditable, avec sa barre d'outils : le clavier
+  // d'un téléphone n'a pas de touche Tab, les niveaux de puce se prennent donc au doigt.
+  //
+  // ⚠️ Le texte reste EXACTEMENT celui du PC (mêmes marqueurs) : ce qu'on écrit ici, le
+  // Cockpit le relit tel quel, et inversement.
+  function outilRiche(cle, libelle, titre) {
+    return (
+      '<button type="button" class="bouton bouton-doux outil-riche" data-action="riche" data-outil="' +
+      cle + '" title="' + ech(titre) + '" aria-label="' + ech(titre) + '">' + libelle + '</button>'
+    );
+  }
+
+  function champRicheHtml() {
+    var vide = String(S.fiche.description || '') === '';
+    return (
+      '<div class="rangee-outils rangee-outils-riche">' +
+      outilRiche('puce', '\u2022 Puce', 'Puce') +
+      outilRiche('niveau-moins', '\u21e4', 'Reculer la puce d\'un niveau') +
+      outilRiche('niveau-plus', '\u21e5', 'Avancer la puce d\'un niveau') +
+      outilRiche('gras', '<b>G</b>', 'Gras') +
+      outilRiche('italique', '<i>I</i>', 'Italique') +
+      outilRiche('surligne', '<span class="pastille-surligne">A</span>', 'Surligner en rouge') +
+      outilRiche('trait', '\u2014 S\u00e9parateur', 'Trait de s\u00e9paration') +
+      '</div>' +
+      '<div class="saisie-riche-boite">' +
+      '<div class="saisie saisie-fiche saisie-riche tr-rendu' + (vide ? ' saisie-riche-vide' : '') +
+      '" id="description-riche" contenteditable="true" role="textbox" aria-multiline="true" ' +
+      'aria-label="Description" data-invite="Description (facultative)">' +
+      Core.htmlTexteRiche(S.fiche.description) +
+      '</div></div>'
+    );
+  }
+
   // Titre + description, communs aux deux fiches.
   function champsTitreDescription(quoi, enEdition) {
     return (
@@ -296,8 +331,7 @@
       '</h2>' +
       '<input type="text" class="champ" data-champ="titre" placeholder="Titre" value="' +
       ech(S.fiche.titre) + '">' +
-      '<textarea class="saisie saisie-fiche" data-champ="description" rows="4" ' +
-      'placeholder="Description (facultative)">' + ech(S.fiche.description) + '</textarea>' +
+      champRicheHtml() +
       '</section>'
     );
   }
@@ -1019,7 +1053,7 @@
           // Rendu RICHE (15-08-2026) : le PC écrit puces, gras, italique, surlignage et
           // traits en texte brut ; `htmlTexteRiche` échappe tout et n'ouvre que ses
           // propres balises. Le téléphone lit, il n'écrit jamais ces marqueurs.
-          ? '<div class="ticket-detail-description">' + Core.htmlTexteRiche(S.ticket.description) + '</div>'
+          ? '<div class="ticket-detail-description tr-rendu">' + Core.htmlTexteRiche(S.ticket.description) + '</div>'
           : '<p class="explication">Pas de description.</p>') +
         '<p class="explication">Lecture seule : le téléphone ne modifie jamais un backlog.</p>' +
         '<button type="button" class="bouton bouton-doux" data-action="fermer-ticket">Fermer</button>' +
@@ -1039,7 +1073,7 @@
         '<p class="idee-maturite idee-maturite-' + ech(S.idee.maturite || 'brut') + '">' +
         'Maturité : ' + libelleMaturite(S.idee.maturite) + '</p>' +
         (S.idee.description
-          ? '<div class="ticket-detail-description">' + Core.htmlTexteRiche(S.idee.description) + '</div>'
+          ? '<div class="ticket-detail-description tr-rendu">' + Core.htmlTexteRiche(S.idee.description) + '</div>'
           : '<p class="explication">Pas de description.</p>') +
         '<p class="explication">Lecture seule : le téléphone ne modifie jamais le Tableau à idées.</p>' +
         '<button type="button" class="bouton bouton-doux" data-action="fermer-idee">Fermer</button>' +
@@ -1138,9 +1172,255 @@
     return document.getElementById('saisie');
   }
 
+  // ---- Le champ riche : modèle ⇄ DOM ------------------------------------------
+  //
+  // Même architecture que sur le PC (`src/pages/projet/texteRicheDom.ts`) : **le DOM n'est
+  // jamais la source de vérité**, le texte l'est. Une frappe modifie le DOM, on le RELIT ;
+  // un geste d'outil se joue sur le MODÈLE puis on REPEINT et on repose le curseur.
+  //
+  // ⚠️ Repeindre passe par `innerHTML` du seul champ, JAMAIS par `render()` : un re-rendu
+  // complet détruirait la zone, refermerait le clavier et perdrait le curseur.
+
+  var EN_LIGNE_RICHE = {
+    STRONG: 1, B: 1, EM: 1, I: 1, MARK: 1, SPAN: 1, FONT: 1, A: 1, U: 1, S: 1,
+    STRIKE: 1, CODE: 1, SUB: 1, SUP: 1, SMALL: 1,
+  };
+
+  function champRiche() {
+    return document.getElementById('description-riche');
+  }
+
+  // Les blocs d'une ligne, dans l'ordre du texte : `htmlTexteRiche` rend une ligne par
+  // <p>, <li> ou <hr>, et l'ordre du document EST l'ordre des lignes.
+  function blocsRiches(champ) {
+    return champ.querySelectorAll('p, li, hr');
+  }
+
+  // Les nœuds de texte d'un bloc, sans ceux de ses sous-listes.
+  function textesDuBloc(bloc) {
+    var sortie = [];
+    (function marcher(n) {
+      for (var i = 0; i < n.childNodes.length; i++) {
+        var enfant = n.childNodes[i];
+        if (enfant.nodeType === 3) sortie.push(enfant);
+        else if (enfant.nodeName !== 'UL') marcher(enfant);
+      }
+    })(bloc);
+    return sortie;
+  }
+
+  // DOM → modèle. Accepte n'importe quelle forme, pas seulement celle qu'on a écrite :
+  // une frappe, un retour arrière ou une fusion de blocs par le moteur laissent des
+  // structures qu'on n'a pas voulues, et il n'est jamais question de perdre du texte.
+  function lireRiche(champ, plage) {
+    var lignes = [];
+    var plat = '';
+    var marques = [];
+    var niveau = -1;
+    var ouverte = false;
+    var brEnAttente = false;
+    var debut = null;
+    var fin = null;
+
+    function fermer() {
+      if (!ouverte) return;
+      lignes.push({ type: 'texte', niveau: niveau, plat: plat, marques: marques });
+      ouverte = false;
+      brEnAttente = false;
+    }
+    function ouvrir(n) {
+      fermer();
+      niveau = n;
+      plat = '';
+      marques = [];
+      ouverte = true;
+    }
+    // Un <br> ne coupe la ligne que si du contenu le suit : le <br> de fin de bloc n'est
+    // qu'un artifice d'affichage, pas une ligne de plus.
+    function assurer() {
+      if (brEnAttente) ouvrir(-1);
+      else if (!ouverte) ouvrir(-1);
+    }
+    // ⚠️ `noter` n'OUVRE jamais de ligne : une ancre posée entre deux blocs créerait sinon
+    // une ligne vide fantôme, et tout le texte glisserait d'un rang.
+    function noter(quel, decalage) {
+      var position = brEnAttente
+        ? { ligne: lignes.length + 1, plat: decalage }
+        : { ligne: lignes.length, plat: (ouverte ? plat.length : 0) + decalage };
+      if (quel === 'debut') debut = position;
+      else fin = position;
+    }
+    function ancre(noeud, index) {
+      if (!plage) return;
+      if (plage.startContainer === noeud && plage.startOffset === index) noter('debut', 0);
+      if (plage.endContainer === noeud && plage.endOffset === index) noter('fin', 0);
+    }
+    function enfants(noeud, marque, profondeur) {
+      var liste = noeud.childNodes;
+      for (var i = 0; i < liste.length; i++) {
+        ancre(noeud, i);
+        parcourir(liste[i], marque, profondeur);
+      }
+      ancre(noeud, liste.length);
+    }
+    function parcourir(noeud, marque, profondeur) {
+      if (noeud.nodeType === 3) {
+        var texte = noeud.nodeValue || '';
+        if (plage && plage.startContainer === noeud) {
+          noter('debut', Math.min(plage.startOffset, texte.length));
+        }
+        if (plage && plage.endContainer === noeud) {
+          noter('fin', Math.min(plage.endOffset, texte.length));
+        }
+        if (texte === '') return;
+        assurer();
+        plat += texte;
+        for (var i = 0; i < texte.length; i++) {
+          marques.push({ gras: marque.gras, italique: marque.italique, surligne: marque.surligne });
+        }
+        return;
+      }
+      if (noeud.nodeType !== 1) return;
+      var nom = noeud.nodeName;
+      if (nom === 'BR') {
+        assurer();
+        brEnAttente = true;
+        return;
+      }
+      if (nom === 'HR') {
+        fermer();
+        lignes.push({ type: 'trait' });
+        return;
+      }
+      if (nom === 'UL' || nom === 'OL') {
+        fermer();
+        enfants(noeud, marque, profondeur + 1);
+        return;
+      }
+      if (nom === 'LI') {
+        ouvrir(Math.max(0, Math.min(Core.NIVEAUX_RICHES - 1, profondeur - 1)));
+        enfants(noeud, marque, profondeur);
+        fermer();
+        return;
+      }
+      if (EN_LIGNE_RICHE[nom]) {
+        var suivante = {
+          gras: marque.gras || nom === 'STRONG' || nom === 'B',
+          italique: marque.italique || nom === 'EM' || nom === 'I',
+          surligne: marque.surligne || nom === 'MARK',
+        };
+        enfants(noeud, suivante, profondeur);
+        return;
+      }
+      // Tout le reste vaut bloc : paragraphe, div, titre… — une ligne ordinaire.
+      ouvrir(-1);
+      enfants(noeud, marque, profondeur);
+      fermer();
+    }
+
+    enfants(champ, { gras: false, italique: false, surligne: false }, 0);
+    fermer();
+    if (!lignes.length) lignes.push({ type: 'texte', niveau: -1, plat: '', marques: [] });
+    var derniere = lignes[lignes.length - 1];
+    var bout = {
+      ligne: lignes.length - 1,
+      plat: derniere.type === 'texte' ? derniere.plat.length : 0,
+    };
+    return { lignes: lignes, debut: debut || fin || bout, fin: fin || debut || bout };
+  }
+
+  // Repeint le champ à partir du modèle, et repose le curseur là où le geste l'a laissé.
+  function peindreRiche(lignes, debut, fin) {
+    var champ = champRiche();
+    if (!champ) return;
+    var texte = Core.ecrireModeleRiche(lignes);
+    champ.innerHTML = Core.htmlTexteRiche(texte);
+    champ.classList.toggle('saisie-riche-vide', texte === '');
+    var blocs = blocsRiches(champ);
+    function accrocher(position) {
+      var rang = Math.max(0, Math.min(blocs.length - 1, position.ligne));
+      // Un trait ne porte pas de curseur : on se rabat sur le bloc suivant, puis le précédent.
+      while (rang < blocs.length && blocs[rang].nodeName === 'HR') rang += 1;
+      while (rang >= blocs.length || (blocs[rang] && blocs[rang].nodeName === 'HR')) rang -= 1;
+      var bloc = blocs[rang];
+      if (!bloc) return null;
+      var textes = textesDuBloc(bloc);
+      var reste = rang === position.ligne ? position.plat : 0;
+      for (var i = 0; i < textes.length; i++) {
+        var taille = textes[i].nodeValue.length;
+        if (reste <= taille) return { noeud: textes[i], decalage: reste };
+        reste -= taille;
+      }
+      return { noeud: bloc, decalage: 0 };
+    }
+    var a = accrocher(debut);
+    var b = accrocher(fin);
+    var selection = window.getSelection();
+    if (!a || !b || !selection) return;
+    try {
+      var plage = document.createRange();
+      plage.setStart(a.noeud, a.decalage);
+      plage.setEnd(b.noeud, b.decalage);
+      selection.removeAllRanges();
+      selection.addRange(plage);
+    } catch (e) {
+      /* une position impossible ne doit jamais casser la saisie */
+    }
+  }
+
+  function etatRiche() {
+    var champ = champRiche();
+    if (!champ) return null;
+    var selection = window.getSelection();
+    var plage = null;
+    if (selection && selection.rangeCount) {
+      var p = selection.getRangeAt(0);
+      if (champ.contains(p.startContainer) && champ.contains(p.endContainer)) plage = p;
+    }
+    var lu = lireRiche(champ, plage);
+    var bornes = Core.ordonnerRiche(
+      Core.bornerRiche(lu.lignes, lu.debut),
+      Core.bornerRiche(lu.lignes, lu.fin)
+    );
+    return { lignes: lu.lignes, debut: bornes[0], fin: bornes[1] };
+  }
+
+  // Un geste d'outil : on lit, on transforme, on repeint, on met l'état à jour.
+  function gesteRiche(transformer) {
+    var courant = etatRiche();
+    if (!courant) return;
+    var suite = transformer(courant);
+    if (!suite) return;
+    S.fiche.description = Core.ecrireModeleRiche(suite.lignes);
+    peindreRiche(
+      suite.lignes,
+      Core.bornerRiche(suite.lignes, suite.debut),
+      Core.bornerRiche(suite.lignes, suite.fin)
+    );
+  }
+
+  function outilRicheAgir(cle) {
+    if (cle === 'puce') {
+      gesteRiche(function (c) { return Core.basculerPuceRiche(c.lignes, c.debut, c.fin); });
+    } else if (cle === 'niveau-plus') {
+      gesteRiche(function (c) { return Core.decalerRiche(c.lignes, c.debut, c.fin, 1); });
+    } else if (cle === 'niveau-moins') {
+      gesteRiche(function (c) { return Core.decalerRiche(c.lignes, c.debut, c.fin, -1); });
+    } else if (cle === 'gras' || cle === 'italique' || cle === 'surligne') {
+      gesteRiche(function (c) { return Core.basculerStyleRiche(c.lignes, c.debut, c.fin, cle); });
+    } else if (cle === 'trait') {
+      gesteRiche(function (c) { return Core.insererTraitRiche(c.lignes, c.debut, c.fin); });
+    }
+  }
+
+
   function lireSaisie() {
     var champ = champSaisie();
     if (champ) S.texte = champ.value;
+    // Le champ riche suit déjà la frappe (écouteur `input`) ; on le relit quand même avant
+    // tout re-rendu — c'est la ceinture, et elle ne coûte rien.
+    var riche = champRiche();
+    if (riche) S.fiche.description = Core.ecrireModeleRiche(lireRiche(riche, null).lignes);
   }
 
   function enregistrer() {
@@ -1597,6 +1877,8 @@
       render();
       var blocProjet = document.getElementById('bloc-projet');
       if (blocProjet) blocProjet.scrollIntoView({ block: 'center' });
+    } else if (action === 'riche') {
+      outilRicheAgir(el.dataset.outil);
     } else if (action === 'separateur') {
       var champ = champSaisie();
       if (!champ) return;
@@ -1895,6 +2177,47 @@
       var bouton = e.target.closest && e.target.closest('button[data-action]');
       if (bouton) e.preventDefault();
     });
+    // Le champ riche prend Entrée et le retour arrière : c'est ce qui enchaîne les puces
+    // et ce qui referme puis rouvre les marqueurs quand on coupe une ligne au milieu d'un
+    // gras. Si le geste ne s'applique pas, on rend la main au moteur — et si Entrée ne
+    // remontait pas (certains claviers virtuels), la ligne naîtrait simplement sans puce :
+    // rien ne casse.
+    racine().addEventListener('keydown', function (e) {
+      var champ = champRiche();
+      if (!champ || (e.target !== champ && !champ.contains(e.target))) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        gesteRiche(function (c) { return Core.entreeRiche(c.lignes, c.debut, c.fin, !e.shiftKey); });
+        return;
+      }
+      if (e.key === 'Backspace') {
+        var courant = etatRiche();
+        if (!courant) return;
+        var suite = Core.retourArriereRiche(courant.lignes, courant.debut, courant.fin);
+        if (!suite) return; // retour arrière ordinaire : celui du moteur
+        e.preventDefault();
+        S.fiche.description = Core.ecrireModeleRiche(suite.lignes);
+        peindreRiche(suite.lignes, Core.bornerRiche(suite.lignes, suite.debut), Core.bornerRiche(suite.lignes, suite.fin));
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        var touche = String(e.key).toLowerCase();
+        if (touche === 'b' || touche === 'i') {
+          e.preventDefault();
+          outilRicheAgir(touche === 'b' ? 'gras' : 'italique');
+        }
+      }
+    });
+    // Toujours en texte brut : un collage riche apporterait des balises qu'on ne saurait
+    // pas réécrire, et des couleurs qui ne sont pas celles de l'application.
+    racine().addEventListener('paste', function (e) {
+      var champ = champRiche();
+      if (!champ || (e.target !== champ && !champ.contains(e.target))) return;
+      e.preventDefault();
+      var colle = (e.clipboardData || global.clipboardData).getData('text/plain') || '';
+      if (colle === '') return;
+      gesteRiche(function (c) { return Core.insererRiche(c.lignes, c.debut, c.fin, colle); });
+    });
     racine().addEventListener('click', surClic);
     racine().addEventListener('input', function (e) {
       var champ = e.target;
@@ -1916,6 +2239,13 @@
       if (S.succes) S.succes = null;
       if (champ.id === 'saisie') {
         S.texte = champ.value;
+        return;
+      }
+      // Champ riche : le DOM vient d'être modifié par la frappe, on le relit. Aucun
+      // repeint ici — ce serait perdre le curseur à chaque touche.
+      if (champ.id === 'description-riche') {
+        S.fiche.description = Core.ecrireModeleRiche(lireRiche(champ, null).lignes);
+        champ.classList.toggle('saisie-riche-vide', S.fiche.description === '');
         return;
       }
       // Champs de la fiche Ticket/Idée (data-champ) : l'état suit la frappe, SANS re-rendu

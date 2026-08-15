@@ -445,19 +445,32 @@
     return { texte: avant + insertion + apres, curseur: (avant + insertion).length };
   }
 
-  // ---- Texte riche des descriptions venues du PC (15-08-2026) ----
+  // ---- Texte riche des descriptions (15-08-2026, complété le même jour) ----
   //
-  // Depuis le 15-08-2026, le Cockpit écrit dans la description d'un ticket ou d'une idée
-  // des puces à SIX niveaux, du gras, de l'italique et du surlignage rouge — toujours en
-  // TEXTE BRUT, avec des marqueurs de deux caractères (voir `src/pages/projet/texteRiche.ts`).
+  // Le Cockpit écrit dans la description d'un ticket ou d'une idée des puces à SIX niveaux,
+  // du gras, de l'italique, du surlignage rouge et des traits de séparation — toujours en
+  // TEXTE BRUT, avec des marqueurs de deux caractères. Le téléphone les LISAIT depuis ce
+  // matin ; il les ÉCRIT désormais aussi (demande de Julien : « n'est-ce pas possible de
+  // créer un ticket sur le téléphone avec les puces, le gras, l'italique ? »).
   //
-  // Le téléphone les RELIT pour les afficher, et ne les écrit jamais : sa saisie reste du
-  // texte simple, séparateur compris. Sans cette lecture, un backlog consulté sur le
-  // téléphone montrerait « **gras** » tel quel.
+  // ⚠️ **C'est un PORTAGE de `src/pages/projet/texteRiche.ts`, pas une variante.** Mêmes
+  // marqueurs, mêmes règles, mêmes noms de fonctions à un suffixe près. Les faire diverger,
+  // c'est écrire d'un côté ce que l'autre ne saura pas relire. Il n'y a pas de moyen de
+  // partager le code : la PWA est du JavaScript nu, sans build ni dépendance, et c'est
+  // exactement ce qui la rend increvable. Le prix est cette copie, tenue par les tests des
+  // deux côtés (`banc_texte_riche.cjs` ici, `mobile/tests.html` là).
   //
-  // ⚠️ Mêmes marqueurs des deux côtés. Les faire diverger, c'est afficher faux ici.
+  // ⚠️ La SAISIE LIBRE (l'écran « Note ») reste du texte simple, séparateur compris : elle
+  // finit dans un fichier sur le disque, que Julien lit tel quel.
+
   var PUCES_RICHES = ['• ', '  ◦ ', '    ▪ ', '      • ', '        ◦ ', '          ▪ '];
-  var MARQUEURS_RICHES = [['==', 'mark'], ['**', 'strong'], ['__', 'em']];
+  var NIVEAUX_RICHES = PUCES_RICHES.length;
+  // Ordre d'imbrication à l'écriture : du plus extérieur au plus intérieur.
+  var STYLES_RICHES = ['surligne', 'gras', 'italique'];
+  var MARQUEURS_RICHES = { surligne: '==', gras: '**', italique: '__' };
+  var BALISES_RICHES = { surligne: 'mark', gras: 'strong', italique: 'em' };
+  // Ce qui fait un mot, quand on applique un style sans rien avoir sélectionné.
+  var LETTRE_RICHE = /[\p{L}\p{N}'’-]/u;
 
   function echapperHtml(texte) {
     return String(texte)
@@ -468,72 +481,487 @@
   }
 
   function niveauPuceRiche(ligne) {
-    for (var n = PUCES_RICHES.length - 1; n >= 0; n--) {
+    for (var n = NIVEAUX_RICHES - 1; n >= 0; n--) {
       if (ligne.indexOf(PUCES_RICHES[n]) === 0) return n;
     }
     return -1;
   }
 
-  // Le contenu d'une ligne : les marqueurs deviennent des balises, le reste est échappé.
-  // Un marqueur sans fermeture reste du texte — rien ne disparaît jamais.
-  function htmlContenuRiche(contenu) {
-    var sortie = '';
+  function marqueVide() {
+    return { gras: false, italique: false, surligne: false };
+  }
+
+  function memeMarque(a, b) {
+    return a.gras === b.gras && a.italique === b.italique && a.surligne === b.surligne;
+  }
+
+  function copierMarque(m) {
+    return { gras: m.gras, italique: m.italique, surligne: m.surligne };
+  }
+
+  /** Contenu balisé → caractères nus et le style de chacun. */
+  function deplierRiche(contenu) {
+    contenu = String(contenu == null ? '' : contenu);
+    var plat = '';
+    var marques = [];
+    var ouverts = [];
     var i = 0;
     while (i < contenu.length) {
-      var trouve = null;
-      for (var k = 0; k < MARQUEURS_RICHES.length; k++) {
-        var marqueur = MARQUEURS_RICHES[k][0];
-        if (contenu.slice(i, i + 2) === marqueur && contenu.indexOf(marqueur, i + 2) !== -1) {
-          trouve = MARQUEURS_RICHES[k];
-          break;
-        }
+      var deux = contenu.slice(i, i + 2);
+      var style = null;
+      for (var k = 0; k < STYLES_RICHES.length; k++) {
+        if (MARQUEURS_RICHES[STYLES_RICHES[k]] === deux) { style = STYLES_RICHES[k]; break; }
       }
-      if (trouve) {
-        var fin = contenu.indexOf(trouve[0], i + 2);
-        sortie +=
-          '<' + trouve[1] + '>' + htmlContenuRiche(contenu.slice(i + 2, fin)) + '</' + trouve[1] + '>';
-        i = fin + 2;
-      } else {
-        sortie += echapperHtml(contenu.charAt(i));
-        i += 1;
+      if (style !== null) {
+        if (ouverts.length && ouverts[ouverts.length - 1] === style) {
+          ouverts.pop();
+          i += 2;
+          continue;
+        }
+        if (ouverts.indexOf(style) === -1 && contenu.indexOf(MARQUEURS_RICHES[style], i + 2) !== -1) {
+          ouverts.push(style);
+          i += 2;
+          continue;
+        }
+        // Marqueur qui ne ferme rien et n'ouvre rien : il vaut pour lui-même.
+      }
+      plat += contenu.charAt(i);
+      marques.push({
+        gras: ouverts.indexOf('gras') !== -1,
+        italique: ouverts.indexOf('italique') !== -1,
+        surligne: ouverts.indexOf('surligne') !== -1,
+      });
+      i += 1;
+    }
+    return { plat: plat, marques: marques };
+  }
+
+  /** Caractères nus et leur style → contenu balisé, imbrication toujours canonique. */
+  function replierRiche(plat, marques) {
+    var sortie = '';
+    var ouverts = [];
+    for (var i = 0; i < plat.length; i++) {
+      var marque = marques[i] || marqueVide();
+      var cible = STYLES_RICHES.filter(function (s) { return marque[s]; });
+      var commun = 0;
+      while (commun < ouverts.length && commun < cible.length && ouverts[commun] === cible[commun]) {
+        commun += 1;
+      }
+      while (ouverts.length > commun) sortie += MARQUEURS_RICHES[ouverts.pop()];
+      for (var k = commun; k < cible.length; k++) {
+        ouverts.push(cible[k]);
+        sortie += MARQUEURS_RICHES[cible[k]];
+      }
+      sortie += plat.charAt(i);
+    }
+    while (ouverts.length) sortie += MARQUEURS_RICHES[ouverts.pop()];
+    return sortie;
+  }
+
+  /** Découpe des caractères marqués en morceaux de style homogène. */
+  function morceauxRiches(plat, marques) {
+    var sortie = [];
+    for (var i = 0; i < plat.length; i++) {
+      var marque = marques[i] || marqueVide();
+      var dernier = sortie[sortie.length - 1];
+      if (dernier && memeMarque(dernier, marque)) dernier.texte += plat.charAt(i);
+      else {
+        var morceau = copierMarque(marque);
+        morceau.texte = plat.charAt(i);
+        sortie.push(morceau);
       }
     }
     return sortie;
   }
 
-  /** Une description du PC, rendue en HTML sûr (tout est échappé sauf nos propres balises). */
+  /** Texte stocké → modèle. Un texte vide donne UNE ligne vide, jamais zéro. */
+  function lireModeleRiche(texte) {
+    return String(texte == null ? '' : texte).split('\n').map(function (ligne) {
+      if (estSeparateur(ligne)) return { type: 'trait' };
+      var niveau = niveauPuceRiche(ligne);
+      var contenu = niveau === -1 ? ligne : ligne.slice(PUCES_RICHES[niveau].length);
+      var deplie = deplierRiche(contenu);
+      return { type: 'texte', niveau: niveau, plat: deplie.plat, marques: deplie.marques };
+    });
+  }
+
+  /** Modèle → texte stocké. */
+  function ecrireModeleRiche(lignes) {
+    return lignes
+      .map(function (l) {
+        if (l.type === 'trait') return SEPARATEUR;
+        return (l.niveau === -1 ? '' : PUCES_RICHES[l.niveau]) + replierRiche(l.plat, l.marques);
+      })
+      .join('\n');
+  }
+
+  /** Le texte débarrassé de ses marqueurs de style (pour un EXTRAIT). */
+  function texteNuRiche(texte) {
+    return lireModeleRiche(texte)
+      .map(function (l) {
+        if (l.type === 'trait') return '—';
+        return (l.niveau === -1 ? '' : PUCES_RICHES[l.niveau]) + l.plat;
+      })
+      .join('\n');
+  }
+
+  /**
+   * Une description rendue en HTML sûr : tout est échappé, seules nos propres balises sont
+   * ouvertes. Construit SUR LE MODÈLE — un seul analyseur, qui ne peut pas diverger de
+   * celui qui écrit.
+   */
   function htmlTexteRiche(texte) {
-    var lignes = String(texte == null ? '' : texte).split('\n');
+    var lignes = lireModeleRiche(texte);
     var sortie = '';
     var profondeur = 0;
-    var fermerJusqua = function (cible) {
-      while (profondeur > cible) {
-        sortie += '</ul>';
-        profondeur -= 1;
-      }
-    };
+    function fermerJusqua(cible) {
+      while (profondeur > cible) { sortie += '</ul>'; profondeur -= 1; }
+    }
     for (var i = 0; i < lignes.length; i++) {
       var ligne = lignes[i];
-      if (estSeparateur(ligne)) {
+      if (ligne.type === 'trait') {
         fermerJusqua(0);
         sortie += '<hr class="tr-trait">';
         continue;
       }
-      var niveau = niveauPuceRiche(ligne);
-      if (niveau === -1) {
+      var parts = morceauxRiches(ligne.plat, ligne.marques);
+      var dedans = '';
+      if (parts.length === 0) {
+        // Un bloc sans texte n'est ni visible ni atteignable au doigt : il lui faut un
+        // `<br>`. Vrai en lecture comme en édition — un seul chemin, donc pas de piège.
+        dedans = '<br>';
+      } else {
+        for (var k = 0; k < parts.length; k++) {
+          var part = parts[k];
+          var morceau = echapperHtml(part.texte);
+          // Du plus intérieur au plus extérieur : l'ordre est celui de STYLES_RICHES.
+          if (part.italique) morceau = '<em>' + morceau + '</em>';
+          if (part.gras) morceau = '<strong>' + morceau + '</strong>';
+          if (part.surligne) morceau = '<mark>' + morceau + '</mark>';
+          dedans += morceau;
+        }
+      }
+      if (ligne.niveau === -1) {
         fermerJusqua(0);
-        sortie += '<p class="tr-p">' + htmlContenuRiche(ligne) + '</p>';
+        sortie += '<p class="tr-p">' + dedans + '</p>';
         continue;
       }
-      fermerJusqua(niveau + 1);
-      while (profondeur < niveau + 1) {
-        sortie += '<ul class="tr-liste">';
-        profondeur += 1;
-      }
-      sortie += '<li class="tr-item">' + htmlContenuRiche(ligne.slice(PUCES_RICHES[niveau].length)) + '</li>';
+      var vise = Math.min(ligne.niveau, NIVEAUX_RICHES - 1) + 1;
+      fermerJusqua(vise);
+      while (profondeur < vise) { sortie += '<ul class="tr-liste">'; profondeur += 1; }
+      sortie += '<li class="tr-item">' + dedans + '</li>';
     }
     fermerJusqua(0);
     return sortie;
+  }
+
+  // ---- Les gestes, sur le modèle (fonctions pures) ----
+  //
+  // Une position se dit `{ ligne, plat }` : le rang de la ligne, et le rang du caractère
+  // DANS LE TEXTE NU de cette ligne. Jamais un décalage de chaîne — couper une ligne au
+  // milieu d'un gras déplace les marqueurs, et un décalage de chaîne tomberait à côté.
+  // Un « état » est `{ lignes, debut, fin }`.
+
+  function copierLigneRiche(l) {
+    if (l.type === 'trait') return { type: 'trait' };
+    return { type: 'texte', niveau: l.niveau, plat: l.plat, marques: l.marques.map(copierMarque) };
+  }
+
+  function copierLignesRiches(lignes) {
+    return lignes.map(copierLigneRiche);
+  }
+
+  function longueurRiche(l) {
+    return l.type === 'trait' ? 0 : l.plat.length;
+  }
+
+  function ligneVideRiche(niveau) {
+    return { type: 'texte', niveau: niveau, plat: '', marques: [] };
+  }
+
+  function bornerRiche(lignes, position) {
+    var ligne = Math.max(0, Math.min(lignes.length - 1, position.ligne));
+    return { ligne: ligne, plat: Math.max(0, Math.min(longueurRiche(lignes[ligne]), position.plat)) };
+  }
+
+  function memePositionRiche(a, b) {
+    return a.ligne === b.ligne && a.plat === b.plat;
+  }
+
+  function ordonnerRiche(a, b) {
+    var apresA = b.ligne < a.ligne || (b.ligne === a.ligne && b.plat < a.plat);
+    return apresA ? [b, a] : [a, b];
+  }
+
+  /** Efface la sélection et renvoie les lignes + le point de jonction. */
+  function retirerPlageRiche(lignes, debut, fin) {
+    if (memePositionRiche(debut, fin)) return { lignes: copierLignesRiches(lignes), point: debut };
+    var avant = copierLignesRiches(lignes.slice(0, debut.ligne));
+    var apres = copierLignesRiches(lignes.slice(fin.ligne + 1));
+    var premiere = lignes[debut.ligne];
+    var derniere = lignes[fin.ligne];
+    // Le trait ne se coupe pas : touché par la sélection, il disparaît entièrement.
+    var tetePlat = premiere.type === 'trait' ? '' : premiere.plat.slice(0, debut.plat);
+    var teteMarques = premiere.type === 'trait' ? [] : premiere.marques.slice(0, debut.plat).map(copierMarque);
+    var queuePlat = derniere.type === 'trait' ? '' : derniere.plat.slice(fin.plat);
+    var queueMarques = derniere.type === 'trait' ? [] : derniere.marques.slice(fin.plat).map(copierMarque);
+    var niveau = premiere.type === 'trait'
+      ? (derniere.type === 'trait' ? -1 : derniere.niveau)
+      : premiere.niveau;
+    var fusion = {
+      type: 'texte',
+      niveau: niveau,
+      plat: tetePlat + queuePlat,
+      marques: teteMarques.concat(queueMarques),
+    };
+    return {
+      lignes: avant.concat([fusion], apres),
+      point: { ligne: debut.ligne, plat: tetePlat.length },
+    };
+  }
+
+  function marqueHeriteeRiche(ligne, plat) {
+    if (ligne.type === 'trait') return marqueVide();
+    var voisin = ligne.marques[plat - 1] || ligne.marques[plat] || marqueVide();
+    return copierMarque(voisin);
+  }
+
+  /** Insertion de texte ordinaire (collage). Les sauts deviennent des lignes ordinaires. */
+  function insererRiche(lignes, debut, fin, texte) {
+    var base = retirerPlageRiche(lignes, debut, fin);
+    var point = base.point;
+    var cible = base.lignes[point.ligne];
+    if (cible.type === 'trait') return { lignes: base.lignes, debut: point, fin: point };
+    var marque = marqueHeriteeRiche(cible, point.plat);
+    var bouts = String(texte).replace(/\r\n?/g, '\n').split('\n');
+    var teteP = cible.plat.slice(0, point.plat);
+    var teteM = cible.marques.slice(0, point.plat);
+    var queueP = cible.plat.slice(point.plat);
+    var queueM = cible.marques.slice(point.plat);
+    function marquesDe(mot) {
+      var sortie = [];
+      for (var i = 0; i < mot.length; i++) sortie.push(copierMarque(marque));
+      return sortie;
+    }
+    if (bouts.length === 1) {
+      base.lignes[point.ligne] = {
+        type: 'texte',
+        niveau: cible.niveau,
+        plat: teteP + bouts[0] + queueP,
+        marques: teteM.concat(marquesDe(bouts[0]), queueM),
+      };
+      var arrivee = { ligne: point.ligne, plat: teteP.length + bouts[0].length };
+      return { lignes: base.lignes, debut: arrivee, fin: arrivee };
+    }
+    var neuves = bouts.map(function (bout, rang) {
+      var dernier = rang === bouts.length - 1;
+      return {
+        type: 'texte',
+        // La première ligne garde sa puce ; les suivantes naissent ordinaires — un texte
+        // collé ne s'invente pas une liste.
+        niveau: rang === 0 ? cible.niveau : -1,
+        plat: (rang === 0 ? teteP : '') + bout + (dernier ? queueP : ''),
+        marques: (rang === 0 ? teteM : []).concat(marquesDe(bout), dernier ? queueM : []),
+      };
+    });
+    var suite = base.lignes.slice(0, point.ligne).concat(neuves, base.lignes.slice(point.ligne + 1));
+    var arriveeM = {
+      ligne: point.ligne + bouts.length - 1,
+      plat: bouts[bouts.length - 1].length,
+    };
+    return { lignes: suite, debut: arriveeM, fin: arriveeM };
+  }
+
+  /**
+   * Entrée. Sur une puce garnie, la ligne suivante naît au même niveau ; sur une puce VIDE,
+   * on SORT de la liste d'un cran au lieu d'empiler une puce de plus.
+   */
+  function entreeRiche(lignes, debut, fin, enchainer) {
+    if (enchainer === undefined) enchainer = true;
+    var base = retirerPlageRiche(lignes, debut, fin);
+    var point = base.point;
+    var cible = base.lignes[point.ligne];
+    if (cible.type !== 'trait' && enchainer && cible.niveau >= 0 && cible.plat.trim() === '') {
+      base.lignes[point.ligne] = ligneVideRiche(cible.niveau - 1);
+      var sortie = { ligne: point.ligne, plat: 0 };
+      return { lignes: base.lignes, debut: sortie, fin: sortie };
+    }
+    var estTrait = cible.type === 'trait';
+    var niveauSuite = estTrait || !enchainer ? -1 : cible.niveau;
+    var haut = estTrait
+      ? { type: 'trait' }
+      : {
+        type: 'texte',
+        niveau: cible.niveau,
+        plat: cible.plat.slice(0, point.plat),
+        marques: cible.marques.slice(0, point.plat),
+      };
+    var bas = {
+      type: 'texte',
+      niveau: niveauSuite,
+      plat: estTrait ? '' : cible.plat.slice(point.plat),
+      marques: estTrait ? [] : cible.marques.slice(point.plat),
+    };
+    var suite = base.lignes.slice(0, point.ligne).concat([haut, bas], base.lignes.slice(point.ligne + 1));
+    var arrivee = { ligne: point.ligne + 1, plat: 0 };
+    return { lignes: suite, debut: arrivee, fin: arrivee };
+  }
+
+  /**
+   * Un cran de plus (`sens = 1`) ou de moins (`sens = -1`) sur les puces touchées.
+   * `null` = aucune ne peut bouger (ligne ordinaire, ou bord de la liste).
+   */
+  function decalerRiche(lignes, debut, fin, sens) {
+    var base = copierLignesRiches(lignes);
+    var bouge = false;
+    for (var i = debut.ligne; i <= fin.ligne; i++) {
+      var ligne = base[i];
+      if (!ligne || ligne.type === 'trait' || ligne.niveau === -1) continue;
+      var vise = ligne.niveau + sens;
+      if (vise < 0 || vise >= NIVEAUX_RICHES) continue;
+      ligne.niveau = vise;
+      bouge = true;
+    }
+    return bouge ? { lignes: base, debut: debut, fin: fin } : null;
+  }
+
+  /** Bascule la puce de niveau 0 sur toutes les lignes touchées. */
+  function basculerPuceRiche(lignes, debut, fin) {
+    var base = copierLignesRiches(lignes);
+    var touchees = [];
+    for (var i = debut.ligne; i <= fin.ligne; i++) {
+      if (base[i] && base[i].type === 'texte') touchees.push(i);
+    }
+    if (!touchees.length) return { lignes: base, debut: debut, fin: fin };
+    var toutesAPuce = touchees.every(function (i) { return base[i].niveau >= 0; });
+    touchees.forEach(function (i) {
+      base[i].niveau = toutesAPuce ? -1 : (base[i].niveau >= 0 ? base[i].niveau : 0);
+    });
+    return { lignes: base, debut: debut, fin: fin };
+  }
+
+  /** Trait de séparation, sur sa propre ligne — jamais deux traits collés l'un à l'autre. */
+  function insererTraitRiche(lignes, debut, fin) {
+    var base = retirerPlageRiche(lignes, debut, fin);
+    var point = base.point;
+    var cible = base.lignes[point.ligne];
+    if (cible.type === 'texte' && cible.plat === '') {
+      // Ligne vide : elle DEVIENT le trait, et une ligne neuve s'ouvre dessous.
+      var suite = base.lignes.slice(0, point.ligne)
+        .concat([{ type: 'trait' }, ligneVideRiche(-1)], base.lignes.slice(point.ligne + 1));
+      var a1 = { ligne: point.ligne + 1, plat: 0 };
+      return { lignes: suite, debut: a1, fin: a1 };
+    }
+    if (point.plat === 0) {
+      // En tête de ligne : le trait se pose au-dessus, sans ouvrir de ligne vide.
+      var suite2 = base.lignes.slice(0, point.ligne)
+        .concat([{ type: 'trait' }], base.lignes.slice(point.ligne));
+      var a2 = { ligne: point.ligne + 1, plat: 0 };
+      return { lignes: suite2, debut: a2, fin: a2 };
+    }
+    // Sinon on coupe la ligne en deux et le trait se glisse entre les deux moitiés.
+    var coupee = entreeRiche(base.lignes, point, point, false);
+    var rang = coupee.debut.ligne;
+    var suite3 = coupee.lignes.slice(0, rang).concat([{ type: 'trait' }], coupee.lignes.slice(rang));
+    var a3 = { ligne: rang + 1, plat: 0 };
+    return { lignes: suite3, debut: a3, fin: a3 };
+  }
+
+  function motAutourRiche(plat, position) {
+    var gauche = position;
+    var droite = position;
+    while (gauche > 0 && LETTRE_RICHE.test(plat.charAt(gauche - 1))) gauche -= 1;
+    while (droite < plat.length && LETTRE_RICHE.test(plat.charAt(droite))) droite += 1;
+    return [gauche, droite];
+  }
+
+  /**
+   * Gras / italique / surlignage. Sélection vide → le style s'applique au MOT sous le
+   * curseur. Tout ce qui est sélectionné le porte déjà → on le retire ; sinon on l'ajoute.
+   */
+  function basculerStyleRiche(lignes, debut, fin, style) {
+    var d = debut;
+    var f = fin;
+    if (memePositionRiche(d, f)) {
+      var ligneD = lignes[d.ligne];
+      if (!ligneD || ligneD.type !== 'texte') return { lignes: lignes, debut: debut, fin: fin };
+      var bornes = motAutourRiche(ligneD.plat, d.plat);
+      if (bornes[0] === bornes[1]) return { lignes: lignes, debut: debut, fin: fin };
+      d = { ligne: d.ligne, plat: bornes[0] };
+      f = { ligne: d.ligne, plat: bornes[1] };
+    }
+    var base = copierLignesRiches(lignes);
+    function tranche(i) {
+      var ligne = base[i];
+      return [i === d.ligne ? d.plat : 0, i === f.ligne ? f.plat : longueurRiche(ligne)];
+    }
+    var toutStyle = true;
+    var auMoinsUn = false;
+    for (var i = d.ligne; i <= f.ligne; i++) {
+      var ligne = base[i];
+      if (!ligne || ligne.type !== 'texte') continue;
+      var t = tranche(i);
+      for (var k = t[0]; k < t[1]; k++) {
+        auMoinsUn = true;
+        if (!ligne.marques[k][style]) toutStyle = false;
+      }
+    }
+    if (!auMoinsUn) return { lignes: lignes, debut: debut, fin: fin };
+    var valeur = !toutStyle;
+    for (var j = d.ligne; j <= f.ligne; j++) {
+      var l2 = base[j];
+      if (!l2 || l2.type !== 'texte') continue;
+      var t2 = tranche(j);
+      for (var m = t2[0]; m < t2[1]; m++) l2.marques[m][style] = valeur;
+    }
+    return { lignes: base, debut: d, fin: f };
+  }
+
+  /** Le style est-il porté par TOUTE la sélection ? (état enfoncé des boutons). */
+  function styleActifRiche(lignes, debut, fin, style) {
+    var bornes = ordonnerRiche(debut, fin);
+    var d = bornes[0];
+    var f = bornes[1];
+    if (memePositionRiche(d, f)) {
+      var ligne = lignes[d.ligne];
+      if (!ligne || ligne.type !== 'texte') return false;
+      var voisin = ligne.marques[d.plat - 1] || ligne.marques[d.plat];
+      return !!(voisin && voisin[style]);
+    }
+    var auMoinsUn = false;
+    for (var i = d.ligne; i <= f.ligne; i++) {
+      var l = lignes[i];
+      if (!l || l.type !== 'texte') continue;
+      var de = i === d.ligne ? d.plat : 0;
+      var a = i === f.ligne ? f.plat : l.plat.length;
+      for (var k = de; k < a; k++) {
+        auMoinsUn = true;
+        if (!l.marques[k][style]) return false;
+      }
+    }
+    return auMoinsUn;
+  }
+
+  /**
+   * Retour arrière en TÊTE de ligne. Deux cas seulement, ceux qu'un navigateur ferait mal :
+   * une puce recule d'un niveau (puis perd sa puce), et un trait se supprime d'un coup.
+   * `null` partout ailleurs — le retour arrière ordinaire reste celui du navigateur.
+   */
+  function retourArriereRiche(lignes, debut, fin) {
+    if (!memePositionRiche(debut, fin) || debut.plat !== 0) return null;
+    var base = copierLignesRiches(lignes);
+    var cible = base[debut.ligne];
+    if (cible && cible.type === 'texte' && cible.niveau >= 0) {
+      cible.niveau -= 1;
+      return { lignes: base, debut: debut, fin: debut };
+    }
+    var precedente = base[debut.ligne - 1];
+    if (precedente && precedente.type === 'trait') {
+      base.splice(debut.ligne - 1, 1);
+      var arrivee = { ligne: debut.ligne - 1, plat: 0 };
+      return { lignes: base, debut: arrivee, fin: arrivee };
+    }
+    return null;
   }
 
   global.Core = {
@@ -573,5 +1001,24 @@
     noteVide: noteVide,
     insererSeparateur: insererSeparateur,
     htmlTexteRiche: htmlTexteRiche,
+    texteNuRiche: texteNuRiche,
+    lireModeleRiche: lireModeleRiche,
+    ecrireModeleRiche: ecrireModeleRiche,
+    deplierRiche: deplierRiche,
+    replierRiche: replierRiche,
+    morceauxRiches: morceauxRiches,
+    niveauPuceRiche: niveauPuceRiche,
+    PUCES_RICHES: PUCES_RICHES,
+    NIVEAUX_RICHES: NIVEAUX_RICHES,
+    bornerRiche: bornerRiche,
+    ordonnerRiche: ordonnerRiche,
+    insererRiche: insererRiche,
+    entreeRiche: entreeRiche,
+    decalerRiche: decalerRiche,
+    basculerPuceRiche: basculerPuceRiche,
+    insererTraitRiche: insererTraitRiche,
+    basculerStyleRiche: basculerStyleRiche,
+    styleActifRiche: styleActifRiche,
+    retourArriereRiche: retourArriereRiche,
   };
 })(window);

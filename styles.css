@@ -649,12 +649,12 @@ code {
   overflow-wrap: anywhere;
 }
 
-.ticket-detail-description .tr-p {
+.tr-rendu .tr-p {
   margin: 0;
   min-height: 1.55em;
 }
 
-.ticket-detail-description .tr-liste {
+.tr-rendu .tr-liste {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -665,17 +665,17 @@ code {
    dans la liste, pas dans son élément, si bien que le `padding-left` de l'élément ne
    s'ajoute pas comme au PC. Mesuré à 16 px, c'était trop peu pour « voir le démarquage » ;
    24 px laisse encore 120 px pour le sixième niveau sur un écran de 375 px. */
-.ticket-detail-description .tr-liste .tr-liste {
+.tr-rendu .tr-liste .tr-liste {
   margin-left: 24px;
 }
 
-.ticket-detail-description .tr-item {
+.tr-rendu .tr-item {
   position: relative;
   padding-left: 18px;
   margin: 3px 0;
 }
 
-.ticket-detail-description .tr-item::before {
+.tr-rendu .tr-item::before {
   position: absolute;
   left: 1px;
   top: 0;
@@ -685,27 +685,27 @@ code {
 
 /* Les glyphes tournent • ◦ ▪ tous les trois niveaux : chaque règle est plus spécifique
    que la précédente, la plus profonde l'emporte. */
-.ticket-detail-description .tr-liste .tr-liste > .tr-item::before {
+.tr-rendu .tr-liste .tr-liste > .tr-item::before {
   content: "◦";
 }
 
-.ticket-detail-description .tr-liste .tr-liste .tr-liste > .tr-item::before {
+.tr-rendu .tr-liste .tr-liste .tr-liste > .tr-item::before {
   content: "▪";
   font-size: 0.75em;
   top: 0.15em;
 }
 
-.ticket-detail-description .tr-liste .tr-liste .tr-liste .tr-liste > .tr-item::before {
+.tr-rendu .tr-liste .tr-liste .tr-liste .tr-liste > .tr-item::before {
   content: "•";
   font-size: 1em;
   top: 0;
 }
 
-.ticket-detail-description .tr-liste .tr-liste .tr-liste .tr-liste .tr-liste > .tr-item::before {
+.tr-rendu .tr-liste .tr-liste .tr-liste .tr-liste .tr-liste > .tr-item::before {
   content: "◦";
 }
 
-.ticket-detail-description
+.tr-rendu
   .tr-liste
   .tr-liste
   .tr-liste
@@ -718,18 +718,79 @@ code {
   top: 0.15em;
 }
 
-.ticket-detail-description hr.tr-trait {
+.tr-rendu hr.tr-trait {
   border: 0;
   border-top: 1px solid rgba(52, 80, 90, 0.35);
   margin: 10px 0;
 }
 
 /* Même rouge que sur le PC — ce n'est pas l'écarlate de la recherche globale. */
-.ticket-detail-description mark {
+.tr-rendu mark {
   background: #ff4136;
   color: #26282a;
   border-radius: 2px;
   padding: 0 1px;
+}
+
+/* ---- Description riche d'une fiche : le champ qu'on ÉDITE (15-08-2026) ----
+   Il partage `.tr-rendu` avec le détail en lecture : ce qu'on écrit et ce qu'on relit
+   doivent se ressembler trait pour trait. */
+
+.saisie-riche-boite {
+  position: relative;
+}
+
+.saisie-riche {
+  /* Quatre lignes au repos comme l'ancien `textarea`, et un ascenseur interne au-delà :
+     la fiche ne doit jamais devenir plus longue que le pouce ne va. */
+  min-height: 118px;
+  max-height: 48vh;
+  overflow-y: auto;
+  resize: none;
+  text-align: left;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Le `contenteditable` n'a pas de `placeholder` : l'invite est posée par-dessus, hors du
+   flux — elle ne doit jamais devenir du texte qu'on pourrait sélectionner ou effacer. */
+.saisie-riche-vide::before {
+  content: attr(data-invite);
+  position: absolute;
+  left: 15px;
+  top: 15px;
+  font-size: 19px;
+  line-height: 1.55;
+  color: rgba(38, 40, 42, 0.42);
+  pointer-events: none;
+}
+
+/* Sept outils sur un écran de téléphone : ils s'enroulent plutôt que de se serrer. */
+.rangee-outils-riche {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.rangee-outils-riche .outil-riche {
+  flex: 0 0 auto;
+  width: auto;
+  /* Assez large pour le pouce, sans manger la ligne : la recommandation d'accessibilité
+     est de 44 px de côté. */
+  min-width: 52px;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 17px;
+}
+
+/* La pastille du surligneur dit sa couleur sans avoir à écrire « rouge ». */
+.pastille-surligne {
+  background: #ff4136;
+  color: #26282a;
+  border-radius: 3px;
+  padding: 0 5px;
+  font-weight: 600;
 }
 
 /* ---- Calques (calendrier, confirmation, détail) ---- */

@@ -520,8 +520,121 @@
       });
 
       test('htmlTexteRiche : une description vide ne rend qu\'une ligne vide', function () {
-        egal(Core.htmlTexteRiche(''), '<p class="tr-p"></p>');
-        egal(Core.htmlTexteRiche(null), '<p class="tr-p"></p>');
+        // Le <br> n'est pas décoratif : sans lui, le bloc vide n'a pas de hauteur et le
+        // curseur n'a nulle part où se poser quand on ÉDITE. Un seul chemin de rendu sert
+        // la lecture et l'édition, donc il est là des deux côtés.
+        egal(Core.htmlTexteRiche(''), '<p class="tr-p"><br></p>');
+        egal(Core.htmlTexteRiche(null), '<p class="tr-p"><br></p>');
+      });
+
+      // ---- Le modèle et les gestes du champ riche (15-08-2026, écriture sur le téléphone) ----
+      //
+      // ⚠️ Portage de `src/pages/projet/texteRiche.ts`. Ces tests sont le garde-fou contre
+      // la divergence : ils reprennent les cas du banc du PC (`banc_texte_riche.cjs`).
+
+      function P(ligne, plat) { return { ligne: ligne, plat: plat }; }
+      function jouer(texte, geste) {
+        var lignes = Core.lireModeleRiche(texte);
+        var suite = geste(lignes);
+        return suite === null ? null : Core.ecrireModeleRiche(suite.lignes);
+      }
+
+      test('modèle : aller-retour texte → modèle → texte', function () {
+        var cas = [
+          '',
+          'une ligne',
+          '• a\n  ◦ b\n    ▪ c\n      • d\n        ◦ e\n          ▪ f',
+          'du **gras**, de l\'__italique__ et du ==rouge==',
+          'a\n' + Core.SEPARATEUR + '\nb',
+          '• **gras** dans une puce',
+          '==**__tout à la fois__**==',
+          'ligne vide au milieu\n\nsuite',
+        ];
+        cas.forEach(function (t) {
+          egal(Core.ecrireModeleRiche(Core.lireModeleRiche(t)), t, t);
+        });
+      });
+
+      test('modèle : les deux premiers marqueurs de puce sont ceux d\'avant', function () {
+        egal(Core.PUCES_RICHES[0], '• ');
+        egal(Core.PUCES_RICHES[1], '  ◦ ');
+        egal(Core.NIVEAUX_RICHES, 6);
+      });
+
+      test('modèle : l\'imbrication écrite est canonique', function () {
+        egal(Core.replierRiche('a', [{ gras: true, italique: true, surligne: true }]), '==**__a__**==');
+      });
+
+      test('modèle : un marqueur sans fermeture reste du texte', function () {
+        egal(Core.deplierRiche('2 ** 3').plat, '2 ** 3');
+      });
+
+      test('texteNuRiche : les marqueurs partent, les puces restent', function () {
+        egal(Core.texteNuRiche('• un **gras** et __ital__'), '• un gras et ital');
+        egal(Core.texteNuRiche('a\n' + Core.SEPARATEUR + '\nb'), 'a\n—\nb');
+      });
+
+      test('Entrée : une puce garnie enchaîne, une puce vide sort de la liste', function () {
+        egal(jouer('• un', function (l) { return Core.entreeRiche(l, P(0, 3), P(0, 3)); }), '• un\n• ');
+        egal(jouer('  ◦ ', function (l) { return Core.entreeRiche(l, P(0, 0), P(0, 0)); }), '• ');
+        egal(jouer('• ', function (l) { return Core.entreeRiche(l, P(0, 0), P(0, 0)); }), '');
+      });
+
+      test('Entrée au milieu d\'un gras referme et rouvre les marqueurs', function () {
+        egal(jouer('**abcd**', function (l) { return Core.entreeRiche(l, P(0, 2), P(0, 2)); }), '**ab**\n**cd**');
+      });
+
+      test('Niveaux : les boutons avancent et reculent, et s\'arrêtent aux bords', function () {
+        egal(jouer('• un', function (l) { return Core.decalerRiche(l, P(0, 1), P(0, 1), 1); }), '  ◦ un');
+        egal(jouer('  ◦ un', function (l) { return Core.decalerRiche(l, P(0, 1), P(0, 1), -1); }), '• un');
+        egal(jouer('• un', function (l) { return Core.decalerRiche(l, P(0, 1), P(0, 1), -1); }), null);
+        egal(jouer(Core.PUCES_RICHES[5] + 'un', function (l) { return Core.decalerRiche(l, P(0, 1), P(0, 1), 1); }), null);
+        egal(jouer('un', function (l) { return Core.decalerRiche(l, P(0, 1), P(0, 1), 1); }), null);
+      });
+
+      test('Puce : le bouton pose, retire, et complète les lignes sans puce', function () {
+        egal(jouer('un', function (l) { return Core.basculerPuceRiche(l, P(0, 0), P(0, 0)); }), '• un');
+        egal(jouer('• un', function (l) { return Core.basculerPuceRiche(l, P(0, 0), P(0, 0)); }), 'un');
+        egal(jouer('• a\nb', function (l) { return Core.basculerPuceRiche(l, P(0, 0), P(1, 1)); }), '• a\n• b');
+      });
+
+      test('Styles : pose, retrait, cumul, et le mot sous le curseur', function () {
+        egal(jouer('abcd', function (l) { return Core.basculerStyleRiche(l, P(0, 1), P(0, 3), 'gras'); }), 'a**bc**d');
+        egal(jouer('a**bc**d', function (l) { return Core.basculerStyleRiche(l, P(0, 1), P(0, 3), 'gras'); }), 'abcd');
+        egal(jouer('**ab**', function (l) { return Core.basculerStyleRiche(l, P(0, 0), P(0, 2), 'italique'); }), '**__ab__**');
+        egal(jouer('un mot ici', function (l) { return Core.basculerStyleRiche(l, P(0, 4), P(0, 4), 'gras'); }), 'un **mot** ici');
+      });
+
+      test('Styles : la puce ne prend jamais le style', function () {
+        egal(jouer('• ab', function (l) { return Core.basculerStyleRiche(l, P(0, 0), P(0, 2), 'gras'); }), '• **ab**');
+      });
+
+      test('Trait : au milieu, en tête de ligne, et sur une ligne vide', function () {
+        egal(jouer('abcd', function (l) { return Core.insererTraitRiche(l, P(0, 2), P(0, 2)); }),
+          'ab\n' + Core.SEPARATEUR + '\ncd');
+        egal(jouer('abcd', function (l) { return Core.insererTraitRiche(l, P(0, 0), P(0, 0)); }),
+          Core.SEPARATEUR + '\nabcd');
+        egal(jouer('', function (l) { return Core.insererTraitRiche(l, P(0, 0), P(0, 0)); }),
+          Core.SEPARATEUR + '\n');
+      });
+
+      test('Retour arrière en tête de ligne : puce, puis trait, puis la main au moteur', function () {
+        egal(jouer('  ◦ ab', function (l) { return Core.retourArriereRiche(l, P(0, 0), P(0, 0)); }), '• ab');
+        egal(jouer('• ab', function (l) { return Core.retourArriereRiche(l, P(0, 0), P(0, 0)); }), 'ab');
+        egal(jouer(Core.SEPARATEUR + '\nab', function (l) { return Core.retourArriereRiche(l, P(1, 0), P(1, 0)); }), 'ab');
+        egal(jouer('ab', function (l) { return Core.retourArriereRiche(l, P(0, 1), P(0, 1)); }), null);
+      });
+
+      test('Collage : texte brut, multiligne, et style hérité du voisin de gauche', function () {
+        egal(jouer('ad', function (l) { return Core.insererRiche(l, P(0, 1), P(0, 1), 'bc'); }), 'abcd');
+        egal(jouer('ad', function (l) { return Core.insererRiche(l, P(0, 1), P(0, 1), 'b\nc'); }), 'ab\ncd');
+        egal(jouer('**ab**', function (l) { return Core.insererRiche(l, P(0, 1), P(0, 1), 'X'); }), '**aXb**');
+        egal(jouer('', function (l) { return Core.insererRiche(l, P(0, 0), P(0, 0), '2 ** 3'); }), '2 ** 3');
+      });
+
+      test('styleActifRiche : vrai sur une sélection toute grasse, faux si partielle', function () {
+        egal(Core.styleActifRiche(Core.lireModeleRiche('**ab**'), P(0, 1), P(0, 1), 'gras'), true);
+        egal(Core.styleActifRiche(Core.lireModeleRiche('**a**b'), P(0, 0), P(0, 2), 'gras'), false);
       });
 
       // ---- Bilan ----
