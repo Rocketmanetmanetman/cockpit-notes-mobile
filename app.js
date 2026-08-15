@@ -275,13 +275,15 @@
     return (
       '<section class="bloc">' +
       '<h2 class="titre-bloc">' + (enEdition ? 'Modifier la note' : 'Nouvelle note') + '</h2>' +
-      // 7 lignes : de quoi écrire largement, tout en laissant le choix du projet (et, au
-      // premier lancement, le bouton d'import) atteignable sans faire défiler l'écran.
-      // Le champ reste redimensionnable à la main (`resize: vertical`).
-      '<textarea class="saisie" id="saisie" placeholder="Écris ta note…" rows="7">' + ech(S.texte) + '</textarea>' +
-      '<div class="rangee-outils">' +
-      '<button type="button" class="bouton bouton-doux" data-action="separateur">— Séparateur</button>' +
-      '</div>' +
+      // La saisie libre est RICHE depuis le 15-08-2026, comme les fiches (« applique-le
+      // aussi à notes »). Sept lignes de hauteur : de quoi écrire largement, tout en
+      // laissant le choix du projet (et, au premier lancement, le bouton d'import)
+      // atteignable sans faire défiler l'écran.
+      //
+      // ⚠️ La note finit dans un FICHIER TEXTE sur le disque de Julien, qu'il lit tel
+      // quel : les marqueurs de style s'y verront (`**gras**`). C'est le prix, il est
+      // connu — le trait de séparation s'y lit déjà comme une ligne de tirets.
+      champRicheHtml('texte', 'saisie', S.texte, 'Écris ta note…', 'saisie-note') +
       '</section>'
     );
   }
@@ -300,8 +302,18 @@
     );
   }
 
-  function champRicheHtml() {
-    var vide = String(S.fiche.description || '') === '';
+  // `cible` dit OÙ le texte est rangé dans l'état : « description » (fiche d'un ticket ou
+  // d'une idée) ou « texte » (saisie libre). C'est le seul écart entre les deux champs —
+  // le moteur, les outils et les gestes sont rigoureusement les mêmes.
+  function champRicheHtml(cible, id, valeur, invite, classe) {
+    if (cible === undefined) {
+      cible = 'description';
+      id = 'description-riche';
+      valeur = S.fiche.description;
+      invite = 'Description (facultative)';
+      classe = 'saisie-fiche';
+    }
+    var vide = String(valeur || '') === '';
     return (
       '<div class="rangee-outils rangee-outils-riche">' +
       outilRiche('puce', '\u2022 Puce', 'Puce') +
@@ -313,10 +325,11 @@
       outilRiche('trait', '\u2014 S\u00e9parateur', 'Trait de s\u00e9paration') +
       '</div>' +
       '<div class="saisie-riche-boite">' +
-      '<div class="saisie saisie-fiche saisie-riche tr-rendu' + (vide ? ' saisie-riche-vide' : '') +
-      '" id="description-riche" contenteditable="true" role="textbox" aria-multiline="true" ' +
-      'aria-label="Description" data-invite="Description (facultative)">' +
-      Core.htmlTexteRiche(S.fiche.description) +
+      '<div class="saisie champ-riche-js tr-rendu ' + classe + ' saisie-riche' +
+      (vide ? ' saisie-riche-vide' : '') + '" id="' + id + '" data-cible="' + cible + '" ' +
+      'contenteditable="true" role="textbox" aria-multiline="true" aria-label="' + ech(invite) +
+      '" data-invite="' + ech(invite) + '">' +
+      Core.htmlTexteRiche(valeur) +
       '</div></div>'
     );
   }
@@ -1168,9 +1181,6 @@
 
   // ---- Actions ---------------------------------------------------------------
 
-  function champSaisie() {
-    return document.getElementById('saisie');
-  }
 
   // ---- Le champ riche : modèle ⇄ DOM ------------------------------------------
   //
@@ -1186,8 +1196,16 @@
     STRIKE: 1, CODE: 1, SUB: 1, SUP: 1, SMALL: 1,
   };
 
+  // Un seul champ riche est à l'écran à la fois : celui de la fiche, ou celui de la note.
   function champRiche() {
-    return document.getElementById('description-riche');
+    return document.querySelector('.champ-riche-js');
+  }
+
+  // Range le texte là où l'écran courant l'attend. C'est le SEUL endroit qui connaît la
+  // différence entre les deux champs.
+  function rangerTexteRiche(champ, texte) {
+    if (champ.dataset.cible === 'texte') S.texte = texte;
+    else S.fiche.description = texte;
   }
 
   // Les blocs d'une ligne, dans l'ordre du texte : `htmlTexteRiche` rend une ligne par
@@ -1391,7 +1409,7 @@
     if (!courant) return;
     var suite = transformer(courant);
     if (!suite) return;
-    S.fiche.description = Core.ecrireModeleRiche(suite.lignes);
+    rangerTexteRiche(champRiche(), Core.ecrireModeleRiche(suite.lignes));
     peindreRiche(
       suite.lignes,
       Core.bornerRiche(suite.lignes, suite.debut),
@@ -1414,13 +1432,11 @@
   }
 
 
+  // Le champ riche suit déjà la frappe (écouteur `input`) ; on le relit quand même avant
+  // tout re-rendu — c'est la ceinture, et elle ne coûte rien.
   function lireSaisie() {
-    var champ = champSaisie();
-    if (champ) S.texte = champ.value;
-    // Le champ riche suit déjà la frappe (écouteur `input`) ; on le relit quand même avant
-    // tout re-rendu — c'est la ceinture, et elle ne coûte rien.
     var riche = champRiche();
-    if (riche) S.fiche.description = Core.ecrireModeleRiche(lireRiche(riche, null).lignes);
+    if (riche) rangerTexteRiche(riche, Core.ecrireModeleRiche(lireRiche(riche, null).lignes));
   }
 
   function enregistrer() {
@@ -1879,14 +1895,6 @@
       if (blocProjet) blocProjet.scrollIntoView({ block: 'center' });
     } else if (action === 'riche') {
       outilRicheAgir(el.dataset.outil);
-    } else if (action === 'separateur') {
-      var champ = champSaisie();
-      if (!champ) return;
-      var resultat = Core.insererSeparateur(champ.value, champ.selectionStart);
-      champ.value = resultat.texte;
-      S.texte = resultat.texte;
-      champ.focus();
-      champ.setSelectionRange(resultat.curseur, resultat.curseur);
     } else if (action === 'projet') {
       lireSaisie();
       S.cible = el.dataset.cle || null;
@@ -2196,7 +2204,7 @@
         var suite = Core.retourArriereRiche(courant.lignes, courant.debut, courant.fin);
         if (!suite) return; // retour arrière ordinaire : celui du moteur
         e.preventDefault();
-        S.fiche.description = Core.ecrireModeleRiche(suite.lignes);
+        rangerTexteRiche(champ, Core.ecrireModeleRiche(suite.lignes));
         peindreRiche(suite.lignes, Core.bornerRiche(suite.lignes, suite.debut), Core.bornerRiche(suite.lignes, suite.fin));
         return;
       }
@@ -2237,15 +2245,12 @@
       }
       S.message = null;
       if (S.succes) S.succes = null;
-      if (champ.id === 'saisie') {
-        S.texte = champ.value;
-        return;
-      }
-      // Champ riche : le DOM vient d'être modifié par la frappe, on le relit. Aucun
-      // repeint ici — ce serait perdre le curseur à chaque touche.
-      if (champ.id === 'description-riche') {
-        S.fiche.description = Core.ecrireModeleRiche(lireRiche(champ, null).lignes);
-        champ.classList.toggle('saisie-riche-vide', S.fiche.description === '');
+      // Champ riche (fiche ou saisie libre) : le DOM vient d'être modifié par la frappe,
+      // on le relit. Aucun repeint ici — ce serait perdre le curseur à chaque touche.
+      if (champ.classList && champ.classList.contains('champ-riche-js')) {
+        var lu = Core.ecrireModeleRiche(lireRiche(champ, null).lignes);
+        rangerTexteRiche(champ, lu);
+        champ.classList.toggle('saisie-riche-vide', lu === '');
         return;
       }
       // Champs de la fiche Ticket/Idée (data-champ) : l'état suit la frappe, SANS re-rendu

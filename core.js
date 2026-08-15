@@ -398,24 +398,33 @@
 
   // ---- Le corps d'une note ----
 
+  // Les lignes qui « disent quelque chose » : ni vides, ni un trait, ni une puce toute
+  // seule — et **débarrassées de leurs marqueurs de style** (15-08-2026, quand la note est
+  // devenue riche elle aussi) : un titre de liste qui afficherait « **gras** » serait laid
+  // et faux. La puce, elle, reste : elle se lit très bien.
+  function lignesParlantes(texte) {
+    return texteNuRiche(texte)
+      .split('\n')
+      .map(function (l) { return l.trim(); })
+      .filter(function (l) {
+        if (l === '' || l === '—' || estSeparateur(l)) return false;
+        // « • » seul, « ◦ » seul… : une puce sans texte ne dit rien.
+        return GLYPHES_RICHES.indexOf(l) === -1;
+      });
+  }
+
   // La première ligne sert de titre d'affichage dans les listes (D4). Le séparateur n'est
   // jamais un titre.
   function titreNote(texte) {
-    var lignes = String(texte || '').split('\n');
-    for (var i = 0; i < lignes.length; i++) {
-      var l = lignes[i].trim();
-      if (l !== '' && !estSeparateur(l)) return l.length > 70 ? l.slice(0, 70) + '…' : l;
-    }
-    return '(note vide)';
+    var lignes = lignesParlantes(texte);
+    if (!lignes.length) return '(note vide)';
+    var l = lignes[0];
+    return l.length > 70 ? l.slice(0, 70) + '…' : l;
   }
 
   // Ce qui suit le titre, resserré, pour la carte de la file.
   function apercuNote(texte) {
-    var lignes = String(texte || '')
-      .split('\n')
-      .map(function (l) { return l.trim(); })
-      .filter(function (l) { return l !== '' && !estSeparateur(l); });
-    var suite = lignes.slice(1).join(' · ');
+    var suite = lignesParlantes(texte).slice(1).join(' · ');
     return suite.length > 90 ? suite.slice(0, 90) + '…' : suite;
   }
 
@@ -423,26 +432,10 @@
     return /^-{8,}$/.test(String(ligne).trim());
   }
 
-  // Une note vide est refusée (§5.2) : ni texte, ni séparateurs seuls.
+  // Une note vide est refusée (§5.2) : ni texte, ni séparateurs seuls — ni, depuis que la
+  // note accepte les puces, une liste de puces toutes vides.
   function noteVide(texte) {
-    return String(texte || '')
-      .split('\n')
-      .every(function (l) { return l.trim() === '' || estSeparateur(l); });
-  }
-
-  // Insère le séparateur à l'endroit du curseur, sur sa propre ligne, sans jamais coller
-  // deux traits l'un à l'autre. Renvoie le nouveau texte et la position du curseur après.
-  function insererSeparateur(texte, position) {
-    texte = String(texte || '');
-    if (typeof position !== 'number' || position < 0 || position > texte.length) {
-      position = texte.length;
-    }
-    var avant = texte.slice(0, position);
-    var apres = texte.slice(position);
-    var prefixe = avant === '' || avant.slice(-1) === '\n' ? '' : '\n';
-    var suffixe = apres.slice(0, 1) === '\n' || apres === '' ? '\n' : '\n';
-    var insertion = prefixe + SEPARATEUR + suffixe;
-    return { texte: avant + insertion + apres, curseur: (avant + insertion).length };
+    return lignesParlantes(texte).length === 0;
   }
 
   // ---- Texte riche des descriptions (15-08-2026, complété le même jour) ----
@@ -465,6 +458,7 @@
 
   var PUCES_RICHES = ['• ', '  ◦ ', '    ▪ ', '      • ', '        ◦ ', '          ▪ '];
   var NIVEAUX_RICHES = PUCES_RICHES.length;
+  var GLYPHES_RICHES = ['\u2022', '\u25e6', '\u25aa'];
   // Ordre d'imbrication à l'écriture : du plus extérieur au plus intérieur.
   var STYLES_RICHES = ['surligne', 'gras', 'italique'];
   var MARQUEURS_RICHES = { surligne: '==', gras: '**', italique: '__' };
@@ -999,7 +993,7 @@
     apercuNote: apercuNote,
     estSeparateur: estSeparateur,
     noteVide: noteVide,
-    insererSeparateur: insererSeparateur,
+    lignesParlantes: lignesParlantes,
     htmlTexteRiche: htmlTexteRiche,
     texteNuRiche: texteNuRiche,
     lireModeleRiche: lireModeleRiche,

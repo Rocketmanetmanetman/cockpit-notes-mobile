@@ -259,34 +259,6 @@
         vrai(!Core.estSeparateur('- a -'));
       });
 
-      // ---- L'insertion du séparateur ----
-
-      test('le séparateur s\'insère sur sa propre ligne, au curseur', function () {
-        var r = Core.insererSeparateur('avantaprès', 5);
-        egal(r.texte, 'avant\n' + Core.SEPARATEUR + '\naprès');
-        egal(r.texte.slice(0, r.curseur), 'avant\n' + Core.SEPARATEUR + '\n');
-      });
-
-      test('le séparateur ne double jamais les sauts de ligne', function () {
-        var r = Core.insererSeparateur('avant\n', 6);
-        egal(r.texte, 'avant\n' + Core.SEPARATEUR + '\n');
-      });
-
-      test('le séparateur en fin de texte reste correct', function () {
-        var r = Core.insererSeparateur('texte', 5);
-        egal(r.texte, 'texte\n' + Core.SEPARATEUR + '\n');
-        egal(r.curseur, r.texte.length);
-      });
-
-      test('une position hors bornes retombe sur la fin du texte', function () {
-        egal(Core.insererSeparateur('abc', 99).texte, 'abc\n' + Core.SEPARATEUR + '\n');
-        egal(Core.insererSeparateur('abc').texte, 'abc\n' + Core.SEPARATEUR + '\n');
-      });
-
-      test('insérer dans un texte vide ne casse rien', function () {
-        egal(Core.insererSeparateur('', 0).texte, Core.SEPARATEUR + '\n');
-      });
-
       // ---- Notes typées (SPEC du 06-08-2026) : le lot v2 ----
 
       function noteLibre(uuid) {
@@ -635,6 +607,23 @@
       test('styleActifRiche : vrai sur une sélection toute grasse, faux si partielle', function () {
         egal(Core.styleActifRiche(Core.lireModeleRiche('**ab**'), P(0, 1), P(0, 1), 'gras'), true);
         egal(Core.styleActifRiche(Core.lireModeleRiche('**a**b'), P(0, 0), P(0, 2), 'gras'), false);
+      });
+
+      // ---- La note libre est riche elle aussi (15-08-2026, second temps) ----
+
+      test('titreNote et apercuNote enlèvent les marqueurs, gardent les puces', function () {
+        egal(Core.titreNote('• **gras**\n  ◦ suite'), '• gras');
+        egal(Core.apercuNote('• **gras**\n  ◦ __suite__'), '◦ suite');
+      });
+
+      test('titreNote ignore un trait en tête', function () {
+        egal(Core.titreNote(Core.SEPARATEUR + '\nvrai titre'), 'vrai titre');
+      });
+
+      test('noteVide : une liste de puces toutes vides ne dit rien', function () {
+        vrai(Core.noteVide('• \n  ◦ \n' + Core.SEPARATEUR));
+        vrai(Core.noteVide(''));
+        vrai(!Core.noteVide('• a'));
       });
 
       // ---- Bilan ----

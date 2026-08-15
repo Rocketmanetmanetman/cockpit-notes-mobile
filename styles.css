@@ -765,6 +765,12 @@ code {
   pointer-events: none;
 }
 
+/* La saisie libre garde ses sept lignes : c'est l'écran où l'on écrit vraiment, et le
+   choix du projet doit rester atteignable sans faire défiler. */
+.saisie-note {
+  min-height: 196px;
+}
+
 /* Sept outils sur un écran de téléphone : ils s'enroulent plutôt que de se serrer. */
 .rangee-outils-riche {
   display: flex;
