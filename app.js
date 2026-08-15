@@ -182,12 +182,27 @@
     );
   }
 
+  // Le projet visé est-il ABSENT de l'instantané ? Cas distinct d'un instantané trop
+  // vieux (audit du 07-08-2026) : un projet créé après le dernier « Pousser » figure dans
+  // projets.json (donc proposé comme cible) sans figurer dans backlogs.json. Dire « ton
+  // instantané date d'avant les notes typées » serait faux et enverrait chercher au
+  // mauvais endroit — le remède est le même, la phrase non.
+  function projetHorsInstantane() {
+    return S.cible !== null && S.backlogs.length > 0 && projetBacklog(S.cible) === null;
+  }
+
+  var REMEDE_POUSSER = ' Sur le PC : Réglages → « Pousser maintenant », puis recharge ' +
+    'backlogs.json ici.';
+
   // Pourquoi « Ticket » est grisé — `null` si possible (§4.6).
   function motifTicket() {
     if (!S.cible) return null; // le cas « sans projet » a son message commun (D1)
     if (Core.colonnesCiblables(projetBacklog(S.cible)).length === 0) {
-      return 'Tickets indisponibles : cet instantané des backlogs date d\'avant les notes ' +
-        'typées. Sur le PC : « Pousser maintenant », puis recharge backlogs.json.';
+      return projetHorsInstantane()
+        ? 'Ce projet ne figure pas encore dans ton instantané des backlogs : ses colonnes ' +
+          'sont inconnues ici.' + REMEDE_POUSSER
+        : 'Tickets indisponibles : cet instantané des backlogs date d\'avant les notes ' +
+          'typées.' + REMEDE_POUSSER;
     }
     return null;
   }
@@ -197,8 +212,11 @@
     if (!S.cible) return null;
     var categories = Core.categoriesDe(projetBacklog(S.cible));
     if (categories === null) {
-      return 'Idées indisponibles : cet instantané des backlogs date d\'avant les notes ' +
-        'typées. Sur le PC : « Pousser maintenant », puis recharge backlogs.json.';
+      return projetHorsInstantane()
+        ? 'Ce projet ne figure pas encore dans ton instantané des backlogs : ses ' +
+          'catégories sont inconnues ici.' + REMEDE_POUSSER
+        : 'Idées indisponibles : cet instantané des backlogs date d\'avant les notes ' +
+          'typées.' + REMEDE_POUSSER;
     }
     if (categories.length === 0) {
       return 'Ce projet n\'a pas encore de catégorie : crée-la dans son Tableau à idées ' +
@@ -998,7 +1016,10 @@
         (S.ticket.date_valeur ? '<p class="ticket-detail-date">' + ech(dateTicket(S.ticket)) + '</p>' : '') +
         (S.ticket.prioritaire_home ? '<p class="marque-prioritaire">Prioritaire Home</p>' : '') +
         (S.ticket.description
-          ? '<p class="ticket-detail-description">' + ech(S.ticket.description) + '</p>'
+          // Rendu RICHE (15-08-2026) : le PC écrit puces, gras, italique, surlignage et
+          // traits en texte brut ; `htmlTexteRiche` échappe tout et n'ouvre que ses
+          // propres balises. Le téléphone lit, il n'écrit jamais ces marqueurs.
+          ? '<div class="ticket-detail-description">' + Core.htmlTexteRiche(S.ticket.description) + '</div>'
           : '<p class="explication">Pas de description.</p>') +
         '<p class="explication">Lecture seule : le téléphone ne modifie jamais un backlog.</p>' +
         '<button type="button" class="bouton bouton-doux" data-action="fermer-ticket">Fermer</button>' +
@@ -1018,7 +1039,7 @@
         '<p class="idee-maturite idee-maturite-' + ech(S.idee.maturite || 'brut') + '">' +
         'Maturité : ' + libelleMaturite(S.idee.maturite) + '</p>' +
         (S.idee.description
-          ? '<p class="ticket-detail-description">' + ech(S.idee.description) + '</p>'
+          ? '<div class="ticket-detail-description">' + Core.htmlTexteRiche(S.idee.description) + '</div>'
           : '<p class="explication">Pas de description.</p>') +
         '<p class="explication">Lecture seule : le téléphone ne modifie jamais le Tableau à idées.</p>' +
         '<button type="button" class="bouton bouton-doux" data-action="fermer-idee">Fermer</button>' +
@@ -1244,6 +1265,43 @@
         return charger();
       })
       .catch(function (e) { signalerErreur(String(e.message || e)); });
+  }
+
+  // Y a-t-il un travail en cours qu'ouvrir une autre note détruirait ? La saisie libre,
+  // ou une fiche typée dont le titre, la description ou un lien porte quelque chose.
+  // (On ne compte pas la maturité ni la position : leurs valeurs par défaut ne sont pas
+  // du travail.) Une édition DÉJÀ ouverte ne compte pas non plus — on la remplace.
+  function saisieEnCours() {
+    lireSaisie();
+    if (S.edition !== null) return false;
+    if (S.genre === 'note') return !Core.noteVide(S.texte);
+    var f = S.fiche;
+    return (
+      String(f.titre || '').trim() !== '' ||
+      String(f.description || '').trim() !== '' ||
+      Core.liensPropres(f.liens).length > 0
+    );
+  }
+
+  // Ouvre une note de la file dans son formulaire. Extrait pour être appelable depuis la
+  // confirmation d'abandon comme directement.
+  function ouvrirEnEdition(note) {
+    S.edition = note.uuid;
+    S.texte = note.texte;
+    S.date = note.date;
+    S.cible = note.cible;
+    S.cibleNom = note.cible_nom || '';
+    // Une note typée rouvre SON formulaire, charge pré-remplie (§4.4).
+    if (note.genre === 'ticket' || note.genre === 'idee') {
+      S.genre = note.genre;
+      S.fiche = Core.ficheDepuisCharge(note.genre, note.charge);
+    } else {
+      S.genre = 'note';
+      S.fiche = Core.ficheVierge();
+    }
+    S.ecran = 'note';
+    render();
+    window.scrollTo(0, 0);
   }
 
   // Après un enregistrement : le texte et la fiche repartent à vide, la date à aujourd'hui,
@@ -1641,22 +1699,22 @@
         signalerErreur('Cette note a été envoyée : elle est figée.');
         return;
       }
-      S.edition = note.uuid;
-      S.texte = note.texte;
-      S.date = note.date;
-      S.cible = note.cible;
-      S.cibleNom = note.cible_nom || '';
-      // Une note typée rouvre SON formulaire, charge pré-remplie (§4.4).
-      if (note.genre === 'ticket' || note.genre === 'idee') {
-        S.genre = note.genre;
-        S.fiche = Core.ficheDepuisCharge(note.genre, note.charge);
-      } else {
-        S.genre = 'note';
-        S.fiche = Core.ficheVierge();
+      // Ouvrir une note en édition ÉCRASE ce qui est en cours de saisie. C'était le seul
+      // geste de l'application qui détruisait du travail sans un mot — et les notes typées
+      // l'ont aggravé : on perdait une ligne, on perdrait maintenant un formulaire entier.
+      // On demande donc, avec le calque de confirmation déjà employé par « Supprimer ».
+      if (saisieEnCours()) {
+        S.confirmation = {
+          titre: 'Abandonner la saisie en cours ?',
+          texte: "Ce que tu es en train d'écrire n'a pas été enregistré et sera perdu si " +
+            'tu ouvres cette note.',
+          libelle: 'Ouvrir quand même',
+          action: function () { ouvrirEnEdition(note); },
+        };
+        render();
+        return;
       }
-      S.ecran = 'note';
-      render();
-      window.scrollTo(0, 0);
+      ouvrirEnEdition(note);
     } else if (action === 'supprimer') {
       var uuid = el.dataset.uuid;
       S.confirmation = {
@@ -1842,7 +1900,19 @@
       var champ = e.target;
       if (!champ) return;
       // Reprendre la saisie efface le bandeau de succès (sans re-rendu : il partira au
-      // prochain, le champ garde son focus).
+      // prochain, le champ garde son focus) — ET DÉSARME LES MINUTEURS. Sans cela, le
+      // rendu différé de la confirmation précédente (2,6 s puis 6 s) réécrivait tout
+      // #app en plein mot : le clavier se refermait, le curseur sautait. Écrire vaut
+      // acquittement (audit du 07-08-2026).
+      if (S.minuteurSucces) {
+        clearTimeout(S.minuteurSucces);
+        S.minuteurSucces = null;
+      }
+      if (S.minuteurMessage) {
+        clearTimeout(S.minuteurMessage);
+        S.minuteurMessage = null;
+      }
+      S.message = null;
       if (S.succes) S.succes = null;
       if (champ.id === 'saisie') {
         S.texte = champ.value;

@@ -315,13 +315,34 @@
 
       // ---- Notes typées : la fiche Ticket ----
 
-      test('l\'heure maison accepte HH:MM réel et refuse le reste', function () {
-        vrai(Core.heureValide('09:30'));
-        vrai(Core.heureValide('23:59'));
+      test('l\'heure maison replie ce qui se tape au pouce et refuse ce qui n\'a pas de sens', function () {
+        // Audit du 07-08-2026 : exiger « HH:MM » rendait le rendez-vous insaisissable sur
+        // un pavé numérique sans « : ». On replie, le contrat reçoit toujours HH:MM.
+        egal(Core.heureNormalisee('09:30'), '09:30');
+        egal(Core.heureNormalisee('9:30'), '09:30');
+        egal(Core.heureNormalisee('0930'), '09:30');
+        egal(Core.heureNormalisee('930'), '09:30');
+        egal(Core.heureNormalisee('9h30'), '09:30');
+        egal(Core.heureNormalisee('9 h 30'), '09:30');
+        egal(Core.heureNormalisee('9'), '09:00');
+        egal(Core.heureNormalisee('23:59'), '23:59');
+        egal(Core.heureNormalisee('0000'), '00:00');
+        // Ce qui n'a pas de sens reste refusé.
+        egal(Core.heureNormalisee('24:00'), '');
+        egal(Core.heureNormalisee('12:75'), '');
+        egal(Core.heureNormalisee(''), '');
+        egal(Core.heureNormalisee('12345'), '');
+        vrai(Core.heureValide('930'));
         vrai(!Core.heureValide('24:00'));
-        vrai(!Core.heureValide('9:30'));
-        vrai(!Core.heureValide('09h30'));
-        vrai(!Core.heureValide(''));
+      });
+
+      test('la charge d\'un rendez-vous replie l\'heure tapée à la main', function () {
+        var f = Core.ficheVierge();
+        f.titre = 'Studio';
+        f.rdv = true;
+        f.date_valeur = '2026-08-20';
+        f.heure = '9h30';
+        egal(Core.chargeTicket(f).date_valeur, '2026-08-20 09:30');
       });
 
       test('un ticket exige un titre, et une colonne ou un rendez-vous', function () {
@@ -448,6 +469,59 @@
         egal(Core.categoriesDe({ colonnes: [] }), null);
         egal(Core.categoriesDe({ categories: [] }), []);
         egal(Core.categoriesDe({ categories: [{ id: 1, libelle: 'Concepts', idees: [] }] }).length, 1);
+      });
+
+      // ---- Texte riche des descriptions venues du PC (15-08-2026) ----
+
+      test('htmlTexteRiche : le gras, l\'italique et le surlignage deviennent des balises', function () {
+        egal(Core.htmlTexteRiche('**a**'), '<p class="tr-p"><strong>a</strong></p>');
+        egal(Core.htmlTexteRiche('__a__'), '<p class="tr-p"><em>a</em></p>');
+        egal(Core.htmlTexteRiche('==a=='), '<p class="tr-p"><mark>a</mark></p>');
+      });
+
+      test('htmlTexteRiche : les marqueurs s\'imbriquent', function () {
+        egal(
+          Core.htmlTexteRiche('==**__a__**=='),
+          '<p class="tr-p"><mark><strong><em>a</em></strong></mark></p>',
+        );
+      });
+
+      test('htmlTexteRiche : un marqueur sans fermeture reste du texte', function () {
+        egal(Core.htmlTexteRiche('2 ** 3'), '<p class="tr-p">2 ** 3</p>');
+      });
+
+      test('htmlTexteRiche : le HTML du texte est ÉCHAPPÉ', function () {
+        // ⚠️ « </scr'+'ipt> » coupé en deux : écrit d'un bloc, il fermerait CE bloc de
+        // script et le harnais entier tomberait en erreur de syntaxe.
+        var dangereux = '<scr' + 'ipt>x</scr' + 'ipt>';
+        egal(
+          Core.htmlTexteRiche(dangereux),
+          '<p class="tr-p">&lt;scr' + 'ipt&gt;x&lt;/scr' + 'ipt&gt;</p>',
+        );
+        egal(Core.htmlTexteRiche('**<b>**'), '<p class="tr-p"><strong>&lt;b&gt;</strong></p>');
+      });
+
+      test('htmlTexteRiche : les puces s\'imbriquent sur six niveaux', function () {
+        var html = Core.htmlTexteRiche('• a\n  ◦ b\n    ▪ c\n      • d\n        ◦ e\n          ▪ f');
+        egal((html.match(/<ul/g) || []).length, 6, 'six listes imbriquées');
+        egal((html.match(/<li/g) || []).length, 6, 'six éléments');
+        egal((html.match(/<\/ul>/g) || []).length, 6, 'toutes refermées');
+      });
+
+      test('htmlTexteRiche : la liste se referme sur une ligne ordinaire', function () {
+        egal(
+          Core.htmlTexteRiche('• a\nfin'),
+          '<ul class="tr-liste"><li class="tr-item">a</li></ul><p class="tr-p">fin</p>',
+        );
+      });
+
+      test('htmlTexteRiche : le séparateur du téléphone devient un trait', function () {
+        egal(Core.htmlTexteRiche(Core.SEPARATEUR), '<hr class="tr-trait">');
+      });
+
+      test('htmlTexteRiche : une description vide ne rend qu\'une ligne vide', function () {
+        egal(Core.htmlTexteRiche(''), '<p class="tr-p"></p>');
+        egal(Core.htmlTexteRiche(null), '<p class="tr-p"></p>');
       });
 
       // ---- Bilan ----

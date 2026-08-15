@@ -232,13 +232,32 @@
     };
   }
 
+  // Replie une heure tapée à la main sur la forme 'HH:MM' du contrat, ou rend '' si elle
+  // n'a aucun sens (audit du 07-08-2026). Le pavé numérique d'un téléphone n'offre pas
+  // toujours de « : » : exiger la forme stricte rendait le rendez-vous insaisissable.
+  // Sont acceptés : « 9:30 », « 0930 », « 9h30 », « 9 h 30 », « 930 », « 9 » (→ 09:00).
+  function heureNormalisee(brut) {
+    var chiffres = String(brut == null ? '' : brut).replace(/\D/g, '');
+    if (chiffres.length === 0 || chiffres.length > 4) return '';
+    var heures;
+    var minutes;
+    if (chiffres.length <= 2) {
+      heures = Number(chiffres);
+      minutes = 0;
+    } else {
+      // 3 chiffres : « 930 » = 9 h 30. 4 chiffres : « 0930 ».
+      heures = Number(chiffres.slice(0, chiffres.length - 2));
+      minutes = Number(chiffres.slice(-2));
+    }
+    if (heures > 23 || minutes > 59) return '';
+    return deux(heures) + ':' + deux(minutes);
+  }
+
   // 'HH:MM' réel — saisie d'heure maison (jamais le sélecteur système), même esprit que
-  // le mini-calendrier.
+  // le mini-calendrier. Tolérante à la FORME depuis l'audit : c'est `heureNormalisee` qui
+  // dit si l'heure a un sens, et la charge JSON reçoit toujours 'HH:MM'.
   function heureValide(h) {
-    if (typeof h !== 'string' || !/^\d{2}:\d{2}$/.test(h)) return false;
-    var heures = Number(h.slice(0, 2));
-    var minutes = Number(h.slice(3, 5));
-    return heures >= 0 && heures <= 23 && minutes >= 0 && minutes <= 59;
+    return heureNormalisee(h) !== '';
   }
 
   // Les liens nettoyés : une URL vide est un lien qui n'existe pas (comme au Cockpit).
@@ -284,7 +303,8 @@
       colonne_id: rdv ? null : f.colonne_id,
       colonne_libelle: rdv ? '' : String(f.colonne_libelle || ''),
       date_nature: rdv ? 'rdv' : f.date_valeur ? 'echeance' : null,
-      date_valeur: rdv ? f.date_valeur + ' ' + f.heure : f.date_valeur || null,
+      // L'heure est REPLIÉE sur 'HH:MM' ici : le contrat ne voit jamais « 9h30 ».
+      date_valeur: rdv ? f.date_valeur + ' ' + heureNormalisee(f.heure) : f.date_valeur || null,
       rappel_home: f.rappel_home === true,
       position: f.position === 'haut' ? 'haut' : 'bas',
       liens: liensPropres(f.liens),
@@ -425,6 +445,97 @@
     return { texte: avant + insertion + apres, curseur: (avant + insertion).length };
   }
 
+  // ---- Texte riche des descriptions venues du PC (15-08-2026) ----
+  //
+  // Depuis le 15-08-2026, le Cockpit écrit dans la description d'un ticket ou d'une idée
+  // des puces à SIX niveaux, du gras, de l'italique et du surlignage rouge — toujours en
+  // TEXTE BRUT, avec des marqueurs de deux caractères (voir `src/pages/projet/texteRiche.ts`).
+  //
+  // Le téléphone les RELIT pour les afficher, et ne les écrit jamais : sa saisie reste du
+  // texte simple, séparateur compris. Sans cette lecture, un backlog consulté sur le
+  // téléphone montrerait « **gras** » tel quel.
+  //
+  // ⚠️ Mêmes marqueurs des deux côtés. Les faire diverger, c'est afficher faux ici.
+  var PUCES_RICHES = ['• ', '  ◦ ', '    ▪ ', '      • ', '        ◦ ', '          ▪ '];
+  var MARQUEURS_RICHES = [['==', 'mark'], ['**', 'strong'], ['__', 'em']];
+
+  function echapperHtml(texte) {
+    return String(texte)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function niveauPuceRiche(ligne) {
+    for (var n = PUCES_RICHES.length - 1; n >= 0; n--) {
+      if (ligne.indexOf(PUCES_RICHES[n]) === 0) return n;
+    }
+    return -1;
+  }
+
+  // Le contenu d'une ligne : les marqueurs deviennent des balises, le reste est échappé.
+  // Un marqueur sans fermeture reste du texte — rien ne disparaît jamais.
+  function htmlContenuRiche(contenu) {
+    var sortie = '';
+    var i = 0;
+    while (i < contenu.length) {
+      var trouve = null;
+      for (var k = 0; k < MARQUEURS_RICHES.length; k++) {
+        var marqueur = MARQUEURS_RICHES[k][0];
+        if (contenu.slice(i, i + 2) === marqueur && contenu.indexOf(marqueur, i + 2) !== -1) {
+          trouve = MARQUEURS_RICHES[k];
+          break;
+        }
+      }
+      if (trouve) {
+        var fin = contenu.indexOf(trouve[0], i + 2);
+        sortie +=
+          '<' + trouve[1] + '>' + htmlContenuRiche(contenu.slice(i + 2, fin)) + '</' + trouve[1] + '>';
+        i = fin + 2;
+      } else {
+        sortie += echapperHtml(contenu.charAt(i));
+        i += 1;
+      }
+    }
+    return sortie;
+  }
+
+  /** Une description du PC, rendue en HTML sûr (tout est échappé sauf nos propres balises). */
+  function htmlTexteRiche(texte) {
+    var lignes = String(texte == null ? '' : texte).split('\n');
+    var sortie = '';
+    var profondeur = 0;
+    var fermerJusqua = function (cible) {
+      while (profondeur > cible) {
+        sortie += '</ul>';
+        profondeur -= 1;
+      }
+    };
+    for (var i = 0; i < lignes.length; i++) {
+      var ligne = lignes[i];
+      if (estSeparateur(ligne)) {
+        fermerJusqua(0);
+        sortie += '<hr class="tr-trait">';
+        continue;
+      }
+      var niveau = niveauPuceRiche(ligne);
+      if (niveau === -1) {
+        fermerJusqua(0);
+        sortie += '<p class="tr-p">' + htmlContenuRiche(ligne) + '</p>';
+        continue;
+      }
+      fermerJusqua(niveau + 1);
+      while (profondeur < niveau + 1) {
+        sortie += '<ul class="tr-liste">';
+        profondeur += 1;
+      }
+      sortie += '<li class="tr-item">' + htmlContenuRiche(ligne.slice(PUCES_RICHES[niveau].length)) + '</li>';
+    }
+    fermerJusqua(0);
+    return sortie;
+  }
+
   global.Core = {
     FORMAT_LOT: FORMAT_LOT,
     FORMAT_PROJETS: FORMAT_PROJETS,
@@ -446,6 +557,7 @@
     noteTypee: noteTypee,
     ficheVierge: ficheVierge,
     heureValide: heureValide,
+    heureNormalisee: heureNormalisee,
     liensPropres: liensPropres,
     validerFicheTicket: validerFicheTicket,
     validerFicheIdee: validerFicheIdee,
@@ -460,5 +572,6 @@
     estSeparateur: estSeparateur,
     noteVide: noteVide,
     insererSeparateur: insererSeparateur,
+    htmlTexteRiche: htmlTexteRiche,
   };
 })(window);

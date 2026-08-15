@@ -639,11 +639,94 @@ code {
   color: rgba(38, 40, 42, 0.6);
 }
 
+/* Depuis le 15-08-2026, la description n'est plus un bloc de texte préformaté mais un
+   RENDU (voir `Core.htmlTexteRiche`) : les sauts de ligne sont des blocs, `pre-wrap`
+   n'a donc plus lieu d'être — il doublerait chaque retour à la ligne. */
 .ticket-detail-description {
   margin: 14px 0;
   font-size: 17px;
   line-height: 1.55;
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ticket-detail-description .tr-p {
+  margin: 0;
+  min-height: 1.55em;
+}
+
+.ticket-detail-description .tr-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Le pas d'indentation est plus court qu'au PC : six niveaux doivent tenir dans la
+   largeur d'un téléphone. */
+.ticket-detail-description .tr-liste .tr-liste {
+  margin-left: 16px;
+}
+
+.ticket-detail-description .tr-item {
+  position: relative;
+  padding-left: 18px;
+  margin: 3px 0;
+}
+
+.ticket-detail-description .tr-item::before {
+  position: absolute;
+  left: 1px;
+  top: 0;
+  color: rgba(38, 40, 42, 0.5);
+  content: "•";
+}
+
+/* Les glyphes tournent • ◦ ▪ tous les trois niveaux : chaque règle est plus spécifique
+   que la précédente, la plus profonde l'emporte. */
+.ticket-detail-description .tr-liste .tr-liste > .tr-item::before {
+  content: "◦";
+}
+
+.ticket-detail-description .tr-liste .tr-liste .tr-liste > .tr-item::before {
+  content: "▪";
+  font-size: 0.75em;
+  top: 0.15em;
+}
+
+.ticket-detail-description .tr-liste .tr-liste .tr-liste .tr-liste > .tr-item::before {
+  content: "•";
+  font-size: 1em;
+  top: 0;
+}
+
+.ticket-detail-description .tr-liste .tr-liste .tr-liste .tr-liste .tr-liste > .tr-item::before {
+  content: "◦";
+}
+
+.ticket-detail-description
+  .tr-liste
+  .tr-liste
+  .tr-liste
+  .tr-liste
+  .tr-liste
+  .tr-liste
+  > .tr-item::before {
+  content: "▪";
+  font-size: 0.75em;
+  top: 0.15em;
+}
+
+.ticket-detail-description hr.tr-trait {
+  border: 0;
+  border-top: 1px solid rgba(52, 80, 90, 0.35);
+  margin: 10px 0;
+}
+
+/* Même rouge que sur le PC — ce n'est pas l'écarlate de la recherche globale. */
+.ticket-detail-description mark {
+  background: #ff4136;
+  color: #26282a;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 /* ---- Calques (calendrier, confirmation, détail) ---- */
