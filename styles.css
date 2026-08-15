@@ -660,10 +660,13 @@ code {
   padding: 0;
 }
 
-/* Le pas d'indentation est plus court qu'au PC : six niveaux doivent tenir dans la
-   largeur d'un téléphone. */
+/* Le pas d'indentation est plus court qu'au PC (48 px) : six niveaux doivent tenir dans la
+   largeur d'un téléphone. ⚠️ Mais il ne compte QUE cette marge — ici une sous-liste se loge
+   dans la liste, pas dans son élément, si bien que le `padding-left` de l'élément ne
+   s'ajoute pas comme au PC. Mesuré à 16 px, c'était trop peu pour « voir le démarquage » ;
+   24 px laisse encore 120 px pour le sixième niveau sur un écran de 375 px. */
 .ticket-detail-description .tr-liste .tr-liste {
-  margin-left: 16px;
+  margin-left: 24px;
 }
 
 .ticket-detail-description .tr-item {
