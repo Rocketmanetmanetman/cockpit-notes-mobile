@@ -971,30 +971,47 @@
   // ============================================================================
 
   var FORMAT_COURSES = 'cockpit-courses';
+  // ⚠️ **Les courses ont leur propre version de contrat, et elle vaut 2.** Celle des notes
+  // reste 1 : les deux familles de fichiers évoluent séparément, et les confondre ferait
+  // refuser un lot de notes parfaitement valide. Le 2 vient de la migration 30 — la forme
+  // de `prix` a changé, et un lecteur en version 1 perdrait les prix en silence.
+  var VERSION_COURSES = 2;
   var FORMAT_COCHES = 'cockpit-courses-coches';
   var FORMAT_EPHEMERE = 'cockpit-courses-ephemere';
 
-  // Les trois enseignes qui partent au drive — **miroir de `contrats::volet_de`**. Tout le
-  // reste s'achète sur place, y compris Écomiam (règle littérale de la spec §7).
-  var ENSEIGNES_DRIVE = { super_u: 1, picard: 1, en_ligne: 1 };
+  // ⚠️ **Le volet vient de la LIGNE de l'enseigne, plus d'une règle en dur.** C'était
+  // `{ super_u, picard, en_ligne }` écrit ici ET dans le Rust ; depuis la migration 30 les
+  // enseignes s'inventent, et une règle en dur n'a rien à dire de celle qu'elle ne connaît
+  // pas. Le téléphone lit donc le volet dans `courses.json`, comme le reste.
+  var LIBELLE_SANS_ENSEIGNE = 'Sans enseigne';
 
-  function voletDe(enseigne) {
-    return ENSEIGNES_DRIVE[String(enseigne || '').trim()] ? 'drive_en_ligne' : 'sur_place';
+  function enseignePar(enseignes, id) {
+    if (id === null || id === undefined) return null;
+    var trouvee = (enseignes || []).filter(function (e) { return e.id === id; })[0];
+    return trouvee || null;
   }
 
-  // L'ordre des enseignes à l'écran : celui des courses de Julien, pas l'alphabet.
-  var ORDRE_ENSEIGNES = [
-    'super_u', 'picard', 'biocoop', 'boucher', 'boulangerie', 'marche', 'en_ligne', 'ecomiam', 'autre',
-  ];
+  function voletDe(enseignes, id) {
+    var e = enseignePar(enseignes, id);
+    return e && e.volet === 'drive_en_ligne' ? 'drive_en_ligne' : 'sur_place';
+  }
 
-  var LIBELLES_ENSEIGNE = {
-    super_u: 'Super U', picard: 'Picard', biocoop: 'Biocoop', boucher: 'Boucher',
-    boulangerie: 'Boulangerie', marche: 'Marché', en_ligne: 'En ligne', ecomiam: 'Ecomiam',
-    autre: 'Autre', '': 'Sans enseigne',
-  };
+  function libelleEnseigne(enseignes, id) {
+    var e = enseignePar(enseignes, id);
+    return e ? e.libelle : LIBELLE_SANS_ENSEIGNE;
+  }
 
-  function libelleEnseigne(cle) {
-    return LIBELLES_ENSEIGNE[cle] || cle;
+  // L'enseigne qui compte pour CETTE course : celle de la coche si Julien en a choisi une,
+  // celle de l'article sinon. Miroir exact du PC et du Rust.
+  function enseigneRetenue(article, coches) {
+    var locale = (coches || {})[article.uuid];
+    if (locale && locale.enseigne_id !== undefined && locale.enseigne_id !== null) {
+      return locale.enseigne_id;
+    }
+    if (article.coche_enseigne_id !== null && article.coche_enseigne_id !== undefined) {
+      return article.coche_enseigne_id;
+    }
+    return article.enseigne_id === undefined ? null : article.enseigne_id;
   }
 
   // ---- Lecture de `courses.json` (§8.1) ----
@@ -1011,7 +1028,7 @@
     if (!brut || typeof brut !== 'object' || brut.format !== FORMAT_COURSES) {
       return { ok: false, erreur: "Ce fichier n'est pas le référentiel des courses (courses.json)." };
     }
-    if (brut.version !== VERSION) {
+    if (brut.version !== VERSION_COURSES) {
       return {
         ok: false,
         versionInconnue: true,
@@ -1020,12 +1037,17 @@
           "Mets à jour l'application avant de le charger.",
       };
     }
+    var refs = brut.references && typeof brut.references === 'object' ? brut.references : {};
     return {
       ok: true,
       genere_le: brut.genere_le || '',
       themes: Array.isArray(brut.themes) ? brut.themes : [],
       articles: Array.isArray(brut.articles) ? brut.articles : [],
-      omega3: brut.omega3 && typeof brut.omega3 === 'object' ? brut.omega3 : null,
+      // Les trois référentiels éditables. Sans eux le téléphone ne saurait ni nommer une
+      // enseigne, ni proposer d'en changer à la coche.
+      enseignes: Array.isArray(refs.enseignes) ? refs.enseignes : [],
+      familles: Array.isArray(refs.familles) ? refs.familles : [],
+      achats: Array.isArray(refs.achats) ? refs.achats : [],
       // Champ additif : un instantané plus ancien n'en a pas, et l'écran le dit.
       ephemere: brut.ephemere && typeof brut.ephemere === 'object' ? brut.ephemere : null,
     };
@@ -1035,21 +1057,27 @@
   //
   // Miroir de `grouper` côté PC. Les deux écrans doivent montrer le MÊME rangement : c'est
   // ce qui fait qu'on retrouve un article au même endroit sur les deux appareils.
-  function grouperCourses(articles, themes) {
+  function grouperCourses(articles, themes, enseignes) {
     var rangTheme = {};
     themes.forEach(function (t, i) { rangTheme[t.libelle] = t.ordre || i + 1; });
 
     var parEnseigne = {};
     articles.forEach(function (a) {
-      var cle = String(a.enseigne_principale || '');
+      var cle = String(a.enseigne_id === null || a.enseigne_id === undefined ? 0 : a.enseigne_id);
       if (!parEnseigne[cle]) parEnseigne[cle] = {};
       var theme = String(a.theme || '');
       if (!parEnseigne[cle][theme]) parEnseigne[cle][theme] = [];
       parEnseigne[cle][theme].push(a);
     });
 
+    // L'ordre des enseignes est celui de la BASE, que Julien réordonne à la main : c'est
+    // l'ordre dans lequel il fait ses courses.
+    var rangEnseigne = {};
+    (enseignes || []).forEach(function (e, i) { rangEnseigne[String(e.id)] = i; });
+
     return Object.keys(parEnseigne)
       .map(function (cle) {
+        var id = Number(cle) || null;
         var blocs = Object.keys(parEnseigne[cle])
           .map(function (theme) {
             var liste = parEnseigne[cle][theme].slice().sort(function (a, b) {
@@ -1062,16 +1090,17 @@
         blocs.forEach(function (b) { total += b.articles.length; });
         return {
           cle: cle,
-          libelle: libelleEnseigne(cle),
-          volet: voletDe(cle),
+          id: id,
+          libelle: id === null ? LIBELLE_SANS_ENSEIGNE : libelleEnseigne(enseignes, id),
+          volet: voletDe(enseignes, id),
           themes: blocs,
           total: total,
         };
       })
       .sort(function (a, b) {
-        var ra = ORDRE_ENSEIGNES.indexOf(a.cle);
-        var rb = ORDRE_ENSEIGNES.indexOf(b.cle);
-        return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
+        var ra = rangEnseigne[a.cle];
+        var rb = rangEnseigne[b.cle];
+        return (ra === undefined ? 99 : ra) - (rb === undefined ? 99 : rb);
       });
   }
 
@@ -1092,7 +1121,7 @@
       if (f.source === 'repas_rapides' && !a.repas_rapide) return false;
       if (f.cochesSeulement && !a.coche) return false;
       if (f.theme && a.theme !== f.theme) return false;
-      if (f.enseigne && String(a.enseigne_principale || '') !== f.enseigne) return false;
+      if (f.enseigne && a.enseigne_id !== f.enseigne) return false;
       if (mots.length === 0) return true;
       var champs = replierTexte(a.nom) + ' ' + replierTexte(a.remarque) + ' ' + replierTexte(a.notes);
       return mots.every(function (mot) { return champs.indexOf(mot) !== -1; });
@@ -1130,17 +1159,24 @@
    * geste du PC.
    */
   function buildLotCoches(coches, uuidLot, genereLe) {
+    // eslint-disable-next-line no-unused-vars
     var lignes = Object.keys(coches || {}).map(function (uuidArticle) {
       var c = coches[uuidArticle] || {};
-      return {
+      var ligne = {
         article_uuid: uuidArticle,
         quantite: String(c.quantite || ''),
         commentaire: String(c.commentaire || ''),
       };
+      // L'enseigne choisie POUR CETTE COURSE, quand Julien en a désigné une. Absente
+      // sinon : le PC gardera alors celle de l'article.
+      if (c.enseigne_id !== undefined && c.enseigne_id !== null) {
+        ligne.enseigne_id = c.enseigne_id;
+      }
+      return ligne;
     });
     return {
       format: FORMAT_COCHES,
-      version: VERSION,
+      version: VERSION_COURSES,
       uuid: uuidLot,
       genere_le: genereLe,
       coches: lignes,
@@ -1155,27 +1191,32 @@
    * `origine` vaut `telephone` : c'est ce champ, et lui seul, qui dira au PC de la
    * normaliser. Jamais l'endroit où le fichier se trouve.
    */
-  function buildEphemereTelephone(articles, coches, source, uuidDoc, genereLe) {
+  function buildEphemereTelephone(articles, coches, source, uuidDoc, genereLe, enseignes) {
     var volets = { sur_place: [], drive_en_ligne: [] };
     (articles || []).forEach(function (a) {
       var locale = (coches || {})[a.uuid];
       if (!a.coche && !locale) return;
       if (source === 'repas_rapides' && !a.repas_rapide) return;
+      var retenue = enseigneRetenue(a, coches);
+      var detournee = retenue !== a.enseigne_id;
       var ligne = {
         article_uuid: a.uuid,
         nom: a.nom,
         theme: a.theme || '',
-        enseigne_principale: a.enseigne_principale || '',
-        enseigne_detail: a.enseigne_detail || '',
+        enseigne_principale: libelleEnseigne(enseignes, retenue),
+        // Le détail de lieu n'a de sens que pour l'enseigne d'origine : cocher « au
+        // marché » ne doit pas traîner « Super U rayon bio » derrière.
+        enseigne_detail: detournee ? '' : (a.enseigne_detail || ''),
         // La quantité du téléphone prend le pas si elle est renseignée — même règle que la
         // fusion des coches côté PC.
         quantite: (locale && locale.quantite) || a.quantite || '',
         commentaire: (locale && locale.commentaire) || a.commentaire || '',
-        prix: a.prix || {},
+        // UN prix : celui de l'enseigne retenue.
+        prix: (a.prix || {})[String(retenue)] || '',
         remarque: a.remarque || '',
         achat: a.achat || '',
       };
-      volets[voletDe(a.enseigne_principale)].push(ligne);
+      volets[voletDe(enseignes, retenue)].push(ligne);
     });
     var parLieu = function (x, y) {
       var a = (x.enseigne_principale || '') + ' ' + (x.theme || '') + ' ' + x.nom;
@@ -1186,7 +1227,7 @@
     volets.drive_en_ligne.sort(parLieu);
     return {
       format: FORMAT_EPHEMERE,
-      version: VERSION,
+      version: VERSION_COURSES,
       uuid: uuidDoc,
       genere_le: genereLe,
       origine: 'telephone',
@@ -1272,6 +1313,8 @@
     buildLotCoches: buildLotCoches,
     buildEphemereTelephone: buildEphemereTelephone,
     documentJson: documentJson,
-    ORDRE_ENSEIGNES: ORDRE_ENSEIGNES,
+    VERSION_COURSES: VERSION_COURSES,
+    enseignePar: enseignePar,
+    enseigneRetenue: enseigneRetenue,
   };
 })(window);

@@ -1632,3 +1632,23 @@ code {
   font-size: 14px;
   margin-top: 6px;
 }
+
+/* ---- Migration 30 : prix de l'enseigne retenue, et enseigne choisie à la coche ---- */
+
+.courses-prix-tel {
+  align-self: flex-start;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+/* L'article part ailleurs que chez son enseigne habituelle, pour cette course seulement. */
+.badge-detour {
+  background: rgba(52, 80, 90, 0.16);
+  color: var(--ardoise, #34505a);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.courses-saisie-tel select.champ {
+  font-size: 15px;
+}

@@ -1221,6 +1221,12 @@
   // du même papier n'ont pas à se synchroniser.
   // ==========================================================================
 
+  // Les enseignes de l'instantané — le téléphone ne connaît plus aucun libellé en dur
+  // depuis la migration 30 : il affiche ce que `courses.json` lui donne.
+  function enseignesCourses() {
+    return S.courses ? S.courses.enseignes || [] : [];
+  }
+
   // Une coche locale, ou `null`. La carte ne contient QUE ce que le téléphone a coché.
   function cocheLocale(uuid) {
     return S.cochesCourses[uuid] || null;
@@ -1308,7 +1314,7 @@
       enseigne: S.enseigneCourses,
     };
     var retenus = Core.filtrerCourses(S.courses.articles, filtres);
-    var enseignes = Core.grouperCourses(retenus, S.courses.themes);
+    var enseignes = Core.grouperCourses(retenus, S.courses.themes, enseignesCourses());
     var deplie = enseignes.some(function (e) { return !S.replisCourses['e:' + e.cle]; });
 
     return (
@@ -1380,6 +1386,9 @@
     var quantite = (locale && locale.quantite) || a.quantite || '';
     var commentaire = (locale && locale.commentaire) || a.commentaire || '';
     var enSaisie = S.saisieCourses === a.uuid;
+    var retenue = Core.enseigneRetenue(a, S.cochesCourses);
+    var detournee = coche && retenue !== a.enseigne_id;
+    var prix = (a.prix || {})[String(retenue)] || '';
     return (
       '<div class="courses-article-tel' + (coche ? ' coche' : '') + '">' +
       // Grosse case, cible large : c'est un pouce qui coche, pas une souris.
@@ -1391,6 +1400,11 @@
       (a.repas_rapide ? ' <span class="badge-genre">rapide</span>' : '') + '</span>' +
       (a.enseigne_detail ? '<span class="courses-lieu-tel">' + ech(a.enseigne_detail) + '</span>' : '') +
       (a.remarque ? '<span class="courses-remarque-tel">' + ech(a.remarque) + '</span>' : '') +
+      (prix ? '<span class="courses-prix-tel">' + ech(prix) + '</span>' : '') +
+      (detournee
+        ? '<span class="badge-genre badge-detour">→ ' +
+          ech(Core.libelleEnseigne(enseignesCourses(), retenue)) + '</span>'
+        : '') +
       (coche && quantite ? '<span class="courses-quantite-tel">' + ech(quantite) + '</span>' : '') +
       (coche && commentaire ? '<span class="courses-commentaire-tel">' + ech(commentaire) + '</span>' : '') +
       (enSaisie
@@ -1399,6 +1413,20 @@
           'data-cible="' + ech(a.uuid) + '" value="' + ech(quantite) + '">' +
           '<input type="text" class="champ" placeholder="Commentaire" data-action="courses-commentaire" ' +
           'data-cible="' + ech(a.uuid) + '" value="' + ech(commentaire) + '">' +
+          // ⚠️ Le choix d'enseigne POUR CETTE COURSE. Il ne touche pas la fiche de
+          // l'article — c'est la demande du 19-08-2026, et le PC tient la même règle.
+          '<select class="champ" data-action="courses-enseigne" data-cible="' + ech(a.uuid) + '">' +
+          '<option value="">Où : ' +
+          ech(Core.libelleEnseigne(enseignesCourses(), a.enseigne_id)) + '</option>' +
+          enseignesCourses()
+            .filter(function (e) { return e.achetable && e.id !== a.enseigne_id; })
+            .map(function (e) {
+              var choisi = locale && locale.enseigne_id === e.id;
+              return '<option value="' + e.id + '"' + (choisi ? ' selected' : '') + '>plutôt ' +
+                ech(e.libelle) + '</option>';
+            })
+            .join('') +
+          '</select>' +
           '<button type="button" class="bouton bouton-doux" data-action="courses-fermer-saisie">Fermer</button>' +
           '</div>'
         : coche
@@ -1469,7 +1497,7 @@
     var pris = lignes.filter(function (l) { return S.prisCourses[l.article_uuid]; }).length;
     var groupes = [];
     lignes.forEach(function (l) {
-      var lieu = l.enseigne_detail || Core.libelleEnseigne(l.enseigne_principale || '');
+      var lieu = l.enseigne_detail || l.enseigne_principale || '';
       var dernier = groupes[groupes.length - 1];
       if (dernier && dernier.lieu === lieu) dernier.lignes.push(l);
       else groupes.push({ lieu: lieu, lignes: [l] });
@@ -1491,6 +1519,7 @@
               '<span class="courses-corps-tel">' +
               '<span class="courses-nom-tel">' + ech(l.nom) + '</span>' +
               (l.quantite ? '<span class="courses-quantite-tel">' + ech(l.quantite) + '</span>' : '') +
+              (l.prix ? '<span class="courses-prix-tel">' + ech(l.prix) + '</span>' : '') +
               (l.commentaire ? '<span class="courses-commentaire-tel">' + ech(l.commentaire) + '</span>' : '') +
               '</span></button>'
             );
@@ -1602,6 +1631,7 @@
     var docUuid = Core.uuid();
     var doc = Core.buildEphemereTelephone(
       articles, S.cochesCourses, S.sourceCourses, docUuid, Core.horodatage(maintenant),
+      enseignesCourses(),
     );
     var total = doc.volets.sur_place.length + doc.volets.drive_en_ligne.length;
     if (total === 0) {
@@ -2639,6 +2669,7 @@
       var groupes = Core.grouperCourses(
         Core.filtrerCourses(S.courses.articles, { source: S.sourceCourses }),
         S.courses.themes,
+        enseignesCourses(),
       );
       var ouvert = groupes.some(function (g) { return !S.replisCourses['e:' + g.cle]; });
       // ⚠️ Comme sur le PC : ce bouton n'agit QUE sur les enseignes. Les thèmes repliés à
@@ -2695,6 +2726,9 @@
       preparerEnvoiCoches();
     } else if (action === 'courses-exporter') {
       exporterEphemereTelephone();
+    } else if (action === 'courses-enseigne') {
+      // (traité par l'écouteur `change` : une liste déroulante n'est pas un clic)
+      return;
     } else if (action === 'courses-importer') {
       document.getElementById('fichier-courses').click();
     } else if (action === 'courses-retelecharger') {
@@ -2783,6 +2817,15 @@
         render();
       } else if (quoi === 'courses-theme') {
         S.themeCourses = champ.value;
+        render();
+      } else if (quoi === 'courses-enseigne') {
+        // ⚠️ L'enseigne de la coche vit dans la coche LOCALE, à côté de la quantité. Elle
+        // ne modifie jamais l'article de l'instantané : le PC gardera son enseigne par
+        // défaut, exactement comme la demande le veut.
+        var uuidE = champ.dataset.cible;
+        if (!S.cochesCourses[uuidE]) S.cochesCourses[uuidE] = { quantite: '', commentaire: '' };
+        S.cochesCourses[uuidE].enseigne_id = champ.value === '' ? null : Number(champ.value);
+        enregistrerCoches();
         render();
       }
     });
