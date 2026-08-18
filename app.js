@@ -80,6 +80,31 @@
     // (second avenant) : affiché dans la File, pour qu'un défaut se LISE sur le téléphone
     // au lieu de se deviner.
     diagnosticNotif: 'pas encore tenté',
+    // ---- Courses (18-08-2026), 5ᵉ onglet ----
+    // Le référentiel importé (`courses.json`), ou `null` tant qu'il n'est pas arrivé.
+    courses: null,
+    // `referentiel` (cochable) ou `ephemere` (la liste qu'on tient en magasin).
+    vueCourses: 'referentiel',
+    sourceCourses: 'complete',
+    rechercheCourses: '',
+    cochesSeulementCourses: false,
+    themeCourses: '',
+    enseigneCourses: '',
+    // Jetons de pliage : `e:<enseigne>` et `t:<enseigne>|<theme>`. Purement d'écran.
+    replisCourses: {},
+    // ⚠️ **Les coches du téléphone sont LOCALES** (§6) : une carte uuid → { quantite,
+    // commentaire } qui ne contient QUE ce que Julien a coché ici. Elle ne modifie pas le
+    // référentiel importé, et c'est ce qui rend l'envoi purement additif.
+    cochesCourses: {},
+    // Le « pris » de la liste éphémère — local aussi, et il ne part JAMAIS : la liste est
+    // jetable, deux vues du même papier n'ont pas à se synchroniser.
+    prisCourses: {},
+    // L'article dont la saisie quantité + commentaire est ouverte.
+    saisieCourses: null,
+    lotCoursesPret: null,
+    dernierLotCourses: null,
+    // Minuteur de la recherche : la liste ne se recompose qu'à l'arrêt de la frappe.
+    minuteurRecherche: null,
   };
 
   function racine() {
@@ -155,6 +180,7 @@
       { cle: 'file', libelle: 'File' },
       { cle: 'backlogs', libelle: 'Backlogs' },
       { cle: 'idees', libelle: 'Idées' },
+      { cle: 'courses', libelle: 'Courses' },
     ];
     return (
       '<nav class="onglets">' +
@@ -1166,7 +1192,8 @@
       S.ecran === 'note' ? ecranNote()
         : S.ecran === 'file' ? ecranFile()
           : S.ecran === 'idees' ? ecranIdees()
-            : ecranBacklogs();
+            : S.ecran === 'courses' ? ecranCourses()
+              : ecranBacklogs();
     // La position de défilement survit au re-rendu (avenant A2) : sans cela, la fermeture
     // du clavier ou un contenu un instant plus court faisait remonter la page au premier
     // appui sur « Enregistrer » ou « + Ajouter un lien ». Les remontées volontaires
@@ -1178,6 +1205,420 @@
       '<main class="contenu">' + corps + '</main>' + calques();
     window.scrollTo(0, defilement);
   }
+
+  // ==========================================================================
+  // Écran 5 : COURSES (SPEC du 18-08-2026)
+  //
+  // Deux sous-vues : le **Référentiel** (cochable au pouce) et la **Liste éphémère**
+  // (celle qu'on tient en magasin). Rien ne part tout seul : le téléphone fabrique des
+  // fichiers, Julien les dépose.
+  //
+  // ⚠️ **Les coches d'ici sont LOCALES jusqu'à l'envoi** (§6). Elles ne modifient pas le
+  // référentiel importé : elles vivent à part, dans `S.cochesCourses`, et c'est ce qui
+  // permet de les envoyer sans jamais décocher quoi que ce soit sur le PC.
+  //
+  // ⚠️ **Le « pris » ne voyage JAMAIS** (§6) : la liste éphémère est jetable, et deux vues
+  // du même papier n'ont pas à se synchroniser.
+  // ==========================================================================
+
+  // Une coche locale, ou `null`. La carte ne contient QUE ce que le téléphone a coché.
+  function cocheLocale(uuid) {
+    return S.cochesCourses[uuid] || null;
+  }
+
+  // Coché à l'écran = coché sur le PC à l'import OU coché ici. L'union, jamais l'un seul.
+  function estCoche(article) {
+    return !!article.coche || !!cocheLocale(article.uuid);
+  }
+
+  function nbCochesCourses() {
+    return (S.courses ? S.courses.articles : []).filter(function (a) {
+      if (S.sourceCourses === 'repas_rapides' && !a.repas_rapide) return false;
+      return estCoche(a);
+    }).length;
+  }
+
+  function enregistrerCoches() {
+    return Store.ecrireMeta('courses_coches', S.cochesCourses).catch(function () {});
+  }
+
+  function enregistrerPris() {
+    return Store.ecrireMeta('courses_pris', S.prisCourses).catch(function () {});
+  }
+
+  function ecranCourses() {
+    if (!S.courses) {
+      return (
+        '<section class="bloc">' +
+        '<h2 class="titre-bloc">Courses</h2>' +
+        '<p class="explication">Le référentiel des courses n\'est pas encore là. Charge ' +
+        '<strong>courses.json</strong> depuis le dossier Google Drive du Cockpit.</p>' +
+        boutonImportCourses() +
+        '</section>'
+      );
+    }
+    return (
+      blocEnteteCourses() +
+      (S.vueCourses === 'ephemere' ? vueEphemereTelephone() : vueReferentielCourses())
+    );
+  }
+
+  function boutonImportCourses() {
+    return (
+      '<button type="button" class="bouton bouton-fort" data-action="courses-importer">' +
+      'Charger courses.json</button>'
+    );
+  }
+
+  function blocEnteteCourses() {
+    var coches = nbCochesCourses();
+    var locales = Object.keys(S.cochesCourses).length;
+    return (
+      '<section class="bloc bloc-courses-entete">' +
+      '<p class="indicateur">Référentiel du ' + ech(Core.horodatageFr(S.courses.genere_le)) +
+      ' · ' + S.courses.articles.length + ' articles</p>' +
+      '<div class="courses-bascule">' +
+      '<button type="button" class="bouton ' + (S.vueCourses === 'referentiel' ? 'bouton-fort' : 'bouton-doux') +
+      '" data-action="courses-vue" data-cible="referentiel">Référentiel</button>' +
+      '<button type="button" class="bouton ' + (S.vueCourses === 'ephemere' ? 'bouton-fort' : 'bouton-doux') +
+      '" data-action="courses-vue" data-cible="ephemere">Liste à faire</button>' +
+      '</div>' +
+      (S.vueCourses === 'referentiel'
+        ? '<div class="courses-bascule">' +
+          '<button type="button" class="bouton ' + (S.sourceCourses === 'complete' ? 'bouton-fort' : 'bouton-doux') +
+          '" data-action="courses-source" data-cible="complete">Liste complète</button>' +
+          '<button type="button" class="bouton ' + (S.sourceCourses === 'repas_rapides' ? 'bouton-fort' : 'bouton-doux') +
+          '" data-action="courses-source" data-cible="repas_rapides">Repas rapides</button>' +
+          '</div>' +
+          '<p class="indicateur">' + coches + (coches > 1 ? ' articles cochés' : ' article coché') +
+          (locales > 0 ? ' · <strong>' + locales + ' à envoyer</strong>' : '') + '</p>'
+        : '') +
+      '</section>'
+    );
+  }
+
+  // ---- Sous-vue 1 : le référentiel, cochable ----
+
+  function vueReferentielCourses() {
+    var filtres = {
+      source: S.sourceCourses,
+      requete: S.rechercheCourses,
+      cochesSeulement: S.cochesSeulementCourses,
+      theme: S.themeCourses,
+      enseigne: S.enseigneCourses,
+    };
+    var retenus = Core.filtrerCourses(S.courses.articles, filtres);
+    var enseignes = Core.grouperCourses(retenus, S.courses.themes);
+    var deplie = enseignes.some(function (e) { return !S.replisCourses['e:' + e.cle]; });
+
+    return (
+      '<section class="bloc">' +
+      '<input type="search" class="champ champ-recherche" placeholder="Chercher un article…" ' +
+      'data-action="courses-recherche" value="' + ech(S.rechercheCourses) + '">' +
+      '<div class="courses-filtres-tel">' +
+      '<label class="courses-filtre-case"><input type="checkbox" data-action="courses-coches-seulement"' +
+      (S.cochesSeulementCourses ? ' checked' : '') + '> Cochés seulement</label>' +
+      '<select class="champ" data-action="courses-theme">' +
+      '<option value="">Tous les thèmes</option>' +
+      S.courses.themes.map(function (t) {
+        return '<option value="' + ech(t.libelle) + '"' +
+          (S.themeCourses === t.libelle ? ' selected' : '') + '>' + ech(t.libelle) + '</option>';
+      }).join('') +
+      '</select>' +
+      '</div>' +
+      '<div class="courses-barre-tel">' +
+      '<button type="button" class="bouton bouton-doux" data-action="courses-tout-plier">' +
+      (deplie ? 'Tout replier' : 'Tout déplier') + '</button>' +
+      '<span class="indicateur">' + retenus.length + ' / ' + S.courses.articles.length + '</span>' +
+      '</div>' +
+      '</section>' +
+      (enseignes.length === 0
+        ? '<p class="vide">Aucun article ne correspond.</p>'
+        : enseignes.map(blocEnseigneTel).join('')) +
+      blocEnvoiCoches()
+    );
+  }
+
+  function blocEnseigneTel(enseigne) {
+    var replie = !!S.replisCourses['e:' + enseigne.cle];
+    var coches = 0;
+    enseigne.themes.forEach(function (t) {
+      t.articles.forEach(function (a) { if (estCoche(a)) coches += 1; });
+    });
+    return (
+      '<section class="bloc bloc-enseigne">' +
+      '<button type="button" class="courses-entete-tel" data-action="courses-plier-enseigne" ' +
+      'data-cible="' + ech(enseigne.cle) + '">' +
+      '<span class="courses-chevron-tel">' + (replie ? '▸' : '▾') + '</span>' +
+      '<span class="courses-titre-tel">' + ech(enseigne.libelle) + '</span>' +
+      '<span class="courses-compte-tel">' + (coches > 0 ? '<strong>' + coches + ' ✓</strong> ' : '') +
+      enseigne.total + '</span>' +
+      '</button>' +
+      (replie
+        ? ''
+        : enseigne.themes.map(function (t) {
+            var jeton = 't:' + enseigne.cle + '|' + t.theme;
+            var themeReplie = !!S.replisCourses[jeton];
+            return (
+              '<div class="courses-theme-tel">' +
+              '<button type="button" class="courses-entete-theme-tel" ' +
+              'data-action="courses-plier-theme" data-cible="' + ech(jeton) + '">' +
+              '<span class="courses-chevron-tel">' + (themeReplie ? '▸' : '▾') + '</span>' +
+              ech(t.theme) + '<span class="courses-compte-tel">' + t.articles.length + '</span>' +
+              '</button>' +
+              (themeReplie ? '' : t.articles.map(ligneArticleTel).join('')) +
+              '</div>'
+            );
+          }).join('')) +
+      '</section>'
+    );
+  }
+
+  function ligneArticleTel(a) {
+    var coche = estCoche(a);
+    var locale = cocheLocale(a.uuid);
+    var quantite = (locale && locale.quantite) || a.quantite || '';
+    var commentaire = (locale && locale.commentaire) || a.commentaire || '';
+    var enSaisie = S.saisieCourses === a.uuid;
+    return (
+      '<div class="courses-article-tel' + (coche ? ' coche' : '') + '">' +
+      // Grosse case, cible large : c'est un pouce qui coche, pas une souris.
+      '<button type="button" class="courses-case-tel' + (coche ? ' cochee' : '') + '" ' +
+      'data-action="courses-cocher" data-cible="' + ech(a.uuid) + '" ' +
+      'aria-label="Cocher ' + ech(a.nom) + '">' + (coche ? '✓' : '') + '</button>' +
+      '<div class="courses-corps-tel">' +
+      '<span class="courses-nom-tel">' + ech(a.nom) +
+      (a.repas_rapide ? ' <span class="badge-genre">rapide</span>' : '') + '</span>' +
+      (a.enseigne_detail ? '<span class="courses-lieu-tel">' + ech(a.enseigne_detail) + '</span>' : '') +
+      (a.remarque ? '<span class="courses-remarque-tel">' + ech(a.remarque) + '</span>' : '') +
+      (coche && quantite ? '<span class="courses-quantite-tel">' + ech(quantite) + '</span>' : '') +
+      (coche && commentaire ? '<span class="courses-commentaire-tel">' + ech(commentaire) + '</span>' : '') +
+      (enSaisie
+        ? '<div class="courses-saisie-tel">' +
+          '<input type="text" class="champ" placeholder="Quantité" data-action="courses-quantite" ' +
+          'data-cible="' + ech(a.uuid) + '" value="' + ech(quantite) + '">' +
+          '<input type="text" class="champ" placeholder="Commentaire" data-action="courses-commentaire" ' +
+          'data-cible="' + ech(a.uuid) + '" value="' + ech(commentaire) + '">' +
+          '<button type="button" class="bouton bouton-doux" data-action="courses-fermer-saisie">Fermer</button>' +
+          '</div>'
+        : coche
+          ? '<button type="button" class="bouton bouton-doux bouton-mince" data-action="courses-preciser" ' +
+            'data-cible="' + ech(a.uuid) + '">Préciser</button>'
+          : '') +
+      '</div>' +
+      '</div>'
+    );
+  }
+
+  function blocEnvoiCoches() {
+    var locales = Object.keys(S.cochesCourses).length;
+    return (
+      '<section class="bloc bloc-envoi">' +
+      '<h2 class="titre-bloc">Envoyer mes coches</h2>' +
+      '<p class="explication">Le fichier se télécharge sur le téléphone : dépose-le ensuite ' +
+      'dans le dossier Google Drive du Cockpit. <strong>Un envoi ne décoche jamais rien</strong> ' +
+      'sur le PC — il ajoute.</p>' +
+      '<button type="button" class="bouton bouton-fort" data-action="courses-envoyer"' +
+      (locales === 0 ? ' disabled' : '') + '>' +
+      (locales === 0 ? 'Rien de neuf à envoyer' : 'Envoyer ' + locales + (locales === 1 ? ' coche' : ' coches')) +
+      '</button>' +
+      '<button type="button" class="bouton bouton-doux" data-action="courses-exporter"' +
+      (nbCochesCourses() === 0 ? ' disabled' : '') + '>Exporter la liste éphémère</button>' +
+      (S.dernierLotCourses
+        ? '<p class="indicateur dernier-lot">Dernier fichier : <span class="depot-fichier">' +
+          ech(S.dernierLotCourses.nom) + '</span></p>' +
+          '<button type="button" class="bouton bouton-doux" data-action="courses-retelecharger">' +
+          'Retélécharger ce fichier</button>'
+        : '') +
+      '</section>' +
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">Fichier reçu du PC</h2>' +
+      '<p class="indicateur">Courses : à jour du ' + ech(Core.horodatageFr(S.courses.genere_le)) + '</p>' +
+      boutonImportCourses() +
+      '</section>'
+    );
+  }
+
+  // ---- Sous-vue 2 : la liste éphémère, celle qu'on tient en magasin ----
+
+  function vueEphemereTelephone() {
+    var eph = S.courses.ephemere;
+    if (!eph) {
+      return (
+        '<p class="vide">Aucune liste à faire. Elle arrive avec <strong>courses.json</strong> ' +
+        'quand le PC en a exporté une.</p>'
+      );
+    }
+    var lignes = (eph.volets && eph.volets.sur_place ? eph.volets.sur_place : [])
+      .concat(eph.volets && eph.volets.drive_en_ligne ? eph.volets.drive_en_ligne : []);
+    var pris = lignes.filter(function (l) { return S.prisCourses[l.article_uuid]; }).length;
+
+    return (
+      '<section class="bloc">' +
+      '<p class="indicateur">Liste du ' + ech(Core.horodatageFr(eph.genere_le)) +
+      ' · <strong>' + pris + ' / ' + lignes.length + ' pris</strong></p>' +
+      '</section>' +
+      voletTelephone('À acheter sur place', eph.volets ? eph.volets.sur_place : []) +
+      voletTelephone('Drive & en ligne', eph.volets ? eph.volets.drive_en_ligne : [])
+    );
+  }
+
+  function voletTelephone(titre, lignes) {
+    lignes = lignes || [];
+    if (lignes.length === 0) return '';
+    var pris = lignes.filter(function (l) { return S.prisCourses[l.article_uuid]; }).length;
+    var groupes = [];
+    lignes.forEach(function (l) {
+      var lieu = l.enseigne_detail || Core.libelleEnseigne(l.enseigne_principale || '');
+      var dernier = groupes[groupes.length - 1];
+      if (dernier && dernier.lieu === lieu) dernier.lignes.push(l);
+      else groupes.push({ lieu: lieu, lignes: [l] });
+    });
+    return (
+      '<section class="bloc">' +
+      '<h2 class="titre-bloc">' + ech(titre) +
+      ' <span class="courses-compte-tel">' + pris + ' / ' + lignes.length + '</span></h2>' +
+      groupes.map(function (g) {
+        return (
+          '<p class="courses-lieu-tel courses-lieu-titre">' + ech(g.lieu) + '</p>' +
+          g.lignes.map(function (l) {
+            var estPris = !!S.prisCourses[l.article_uuid];
+            return (
+              '<button type="button" class="courses-pris-tel' + (estPris ? ' pris' : '') + '" ' +
+              'data-action="courses-pris" data-cible="' + ech(l.article_uuid) + '">' +
+              '<span class="courses-case-tel' + (estPris ? ' cochee' : '') + '">' +
+              (estPris ? '✓' : '') + '</span>' +
+              '<span class="courses-corps-tel">' +
+              '<span class="courses-nom-tel">' + ech(l.nom) + '</span>' +
+              (l.quantite ? '<span class="courses-quantite-tel">' + ech(l.quantite) + '</span>' : '') +
+              (l.commentaire ? '<span class="courses-commentaire-tel">' + ech(l.commentaire) + '</span>' : '') +
+              '</span></button>'
+            );
+          }).join('')
+        );
+      }).join('') +
+      '</section>'
+    );
+  }
+
+  // ---- Import et fabrication de fichiers ----
+
+  function chargerFichierCourses(fichier) {
+    var lecteur = new FileReader();
+    lecteur.onload = function () {
+      var texte = String(lecteur.result);
+      var resultat = Core.parseCourses(texte);
+      if (!resultat.ok) {
+        signalerErreur(resultat.erreur);
+        return;
+      }
+      var actuel = S.courses ? S.courses.genere_le : null;
+      var appliquer = function () {
+        Store.enregistrerReferentiel('courses', texte)
+          .then(charger)
+          .then(function () {
+            signalerSucces('Courses mises à jour — instantané du ' +
+              Core.horodatageFr(resultat.genere_le) + '.');
+          })
+          .catch(function (e) { signalerErreur(String(e.message || e)); });
+      };
+      // **La garde de fraîcheur existante**, mot pour mot : Drive sert parfois une copie
+      // en cache, et recharger un instantané plus ancien passerait pour « ça ne se met
+      // pas à jour ».
+      if (actuel && resultat.genere_le < actuel) {
+        S.confirmation = {
+          titre: 'Ce fichier est plus ANCIEN',
+          texte:
+            'Le fichier choisi date du ' + Core.horodatageFr(resultat.genere_le) +
+            ', alors que tu as déjà chargé celui du ' + Core.horodatageFr(actuel) + '. ' +
+            "Google Drive t'a probablement donné une copie en cache : ouvre-le dans " +
+            "l'application Drive, télécharge-le, puis reprends-le dans Téléchargements.",
+          libelle: 'Charger quand même',
+          action: appliquer,
+        };
+        render();
+        return;
+      }
+      if (actuel && resultat.genere_le === actuel) {
+        signaler('Courses : ce fichier est IDENTIQUE à celui déjà chargé (' +
+          Core.horodatageFr(actuel) + '). Rien n\'a changé.');
+        return;
+      }
+      appliquer();
+    };
+    lecteur.onerror = function () { signalerErreur('Lecture du fichier impossible.'); };
+    lecteur.readAsText(fichier);
+  }
+
+  // Le lot est fabriqué AVANT la confirmation, et téléchargé DANS le geste — patron des
+  // notes, repris tel quel, et pour la même raison : construit après coup, le
+  // téléchargement partait trop tard pour que le navigateur l'autorise encore.
+  function preparerEnvoiCoches() {
+    var locales = Object.keys(S.cochesCourses).length;
+    if (locales === 0) {
+      signaler('Rien de neuf à envoyer.');
+      return;
+    }
+    var maintenant = new Date();
+    var lotUuid = Core.uuid();
+    S.lotCoursesPret = {
+      nom: Core.cochesFilename(lotUuid, maintenant),
+      json: Core.documentJson(Core.buildLotCoches(S.cochesCourses, lotUuid, Core.horodatage(maintenant))),
+      nb: locales,
+    };
+    S.confirmation = {
+      titre: 'Envoyer mes coches ?',
+      texte:
+        locales + (locales === 1 ? ' coche va être mise' : ' coches vont être mises') +
+        ' dans un fichier à déposer dans le dossier Google Drive. Le PC les AJOUTERA à ce ' +
+        "qu'il a déjà — il ne décochera rien.",
+      libelle: 'Envoyer',
+      action: envoyerCochesMaintenant,
+    };
+    render();
+  }
+
+  // ⚠️ **Les coches locales ne sont PAS vidées après l'envoi.** Le PC ne décoche jamais sur
+  // ordre du téléphone : tant que Julien n'a pas rechargé un `courses.json` frais où ses
+  // coches sont arrivées, elles doivent rester visibles ici. Un lot re-déposé ne se rejoue
+  // pas (le PC le reconnaît à son uuid), donc renvoyer ne coûte rien.
+  function envoyerCochesMaintenant() {
+    var pret = S.lotCoursesPret;
+    S.lotCoursesPret = null;
+    if (!pret) return;
+    if (!telecharger(pret.nom, pret.json)) {
+      signalerErreur("Le téléchargement n'a pas démarré. Réessaie — rien n'est figé.");
+      return;
+    }
+    S.dernierLotCourses = { nom: pret.nom, json: pret.json, nb: pret.nb };
+    Store.ecrireMeta('courses_dernier_lot', S.dernierLotCourses).catch(function () {});
+    S.depot = { nom: pret.nom, nb: pret.nb };
+    render();
+  }
+
+  function exporterEphemereTelephone() {
+    var articles = S.courses ? S.courses.articles : [];
+    var maintenant = new Date();
+    var docUuid = Core.uuid();
+    var doc = Core.buildEphemereTelephone(
+      articles, S.cochesCourses, S.sourceCourses, docUuid, Core.horodatage(maintenant),
+    );
+    var total = doc.volets.sur_place.length + doc.volets.drive_en_ligne.length;
+    if (total === 0) {
+      signaler('Aucun article coché : il n\'y a rien à exporter.');
+      return;
+    }
+    var nom = Core.ephemereFilename(docUuid, maintenant);
+    if (!telecharger(nom, Core.documentJson(doc))) {
+      signalerErreur("Le téléchargement n'a pas démarré. Réessaie.");
+      return;
+    }
+    S.dernierLotCourses = { nom: nom, json: Core.documentJson(doc), nb: total };
+    Store.ecrireMeta('courses_dernier_lot', S.dernierLotCourses).catch(function () {});
+    S.depot = { nom: nom, nb: total };
+    render();
+  }
+
 
   // ---- Actions ---------------------------------------------------------------
 
@@ -1838,6 +2279,10 @@
       Store.lireReferentiel('projets'),
       Store.lireReferentiel('backlogs'),
       Store.lireDernierLot(),
+      Store.lireReferentiel('courses'),
+      Store.lireMeta('courses_coches', {}),
+      Store.lireMeta('courses_pris', {}),
+      Store.lireMeta('courses_dernier_lot', null),
     ]).then(function (r) {
       S.notes = r[0];
       if (r[3]) S.dernierLot = r[3];
@@ -1851,6 +2296,27 @@
         S.backlogs = backlogs.projets;
         S.backlogsGenereLe = backlogs.genere_le;
         S.backlogsRdv = backlogs.rdv;
+      }
+      var courses = r[4] ? Core.parseCourses(r[4]) : null;
+      if (courses && courses.ok) S.courses = courses;
+      S.cochesCourses = r[5] || {};
+      S.prisCourses = r[6] || {};
+      if (r[7]) S.dernierLotCourses = r[7];
+      // Une coche locale qui vise un article disparu du référentiel est retirée : sans
+      // cela, elle repartirait dans chaque lot pour être ignorée à chaque fois.
+      if (S.courses) {
+        var connus = {};
+        S.courses.articles.forEach(function (a) { connus[a.uuid] = 1; });
+        var nettoyee = {};
+        var perdue = false;
+        Object.keys(S.cochesCourses).forEach(function (u) {
+          if (connus[u]) nettoyee[u] = S.cochesCourses[u];
+          else perdue = true;
+        });
+        if (perdue) {
+          S.cochesCourses = nettoyee;
+          Store.ecrireMeta('courses_coches', nettoyee).catch(function () {});
+        }
       }
       // Une cible qui a disparu du référentiel repasse « Sans projet » : le téléphone ne
       // propose jamais une cible qu'il ne connaît plus.
@@ -2160,6 +2626,86 @@
     } else if (action === 'fermer-idee') {
       S.idee = null;
       render();
+
+    // ---- Courses (18-08-2026) ----
+    } else if (action === 'courses-vue') {
+      S.vueCourses = el.dataset.cible;
+      render();
+      window.scrollTo(0, 0);
+    } else if (action === 'courses-source') {
+      S.sourceCourses = el.dataset.cible;
+      render();
+    } else if (action === 'courses-tout-plier') {
+      var groupes = Core.grouperCourses(
+        Core.filtrerCourses(S.courses.articles, { source: S.sourceCourses }),
+        S.courses.themes,
+      );
+      var ouvert = groupes.some(function (g) { return !S.replisCourses['e:' + g.cle]; });
+      // ⚠️ Comme sur le PC : ce bouton n'agit QUE sur les enseignes. Les thèmes repliés à
+      // l'intérieur le restent — déplier quatorze thèmes de huit enseignes d'un coup
+      // rendrait la liste illisible, et sur un téléphone plus encore.
+      groupes.forEach(function (g) {
+        if (ouvert) S.replisCourses['e:' + g.cle] = true;
+        else delete S.replisCourses['e:' + g.cle];
+      });
+      render();
+    } else if (action === 'courses-plier-enseigne') {
+      var cleE = 'e:' + el.dataset.cible;
+      if (S.replisCourses[cleE]) delete S.replisCourses[cleE];
+      else S.replisCourses[cleE] = true;
+      render();
+    } else if (action === 'courses-plier-theme') {
+      var cleT = el.dataset.cible;
+      if (S.replisCourses[cleT]) delete S.replisCourses[cleT];
+      else S.replisCourses[cleT] = true;
+      render();
+    } else if (action === 'courses-cocher') {
+      var uuidA = el.dataset.cible;
+      var articleC = S.courses.articles.filter(function (a) { return a.uuid === uuidA; })[0];
+      if (!articleC) return;
+      if (S.cochesCourses[uuidA]) {
+        // Décocher ici retire la coche LOCALE, et rien d'autre : si le PC l'avait déjà
+        // cochée, elle reste cochée là-bas. Décocher est un geste du PC (§8.2).
+        delete S.cochesCourses[uuidA];
+        S.saisieCourses = null;
+      } else if (articleC.coche) {
+        // Déjà cochée par le PC : il n'y a rien à ajouter, on ouvre juste la précision.
+        S.saisieCourses = S.saisieCourses === uuidA ? null : uuidA;
+        render();
+        return;
+      } else {
+        S.cochesCourses[uuidA] = { quantite: '', commentaire: '' };
+        S.saisieCourses = uuidA;
+      }
+      enregistrerCoches();
+      render();
+    } else if (action === 'courses-preciser') {
+      S.saisieCourses = S.saisieCourses === el.dataset.cible ? null : el.dataset.cible;
+      render();
+    } else if (action === 'courses-fermer-saisie') {
+      S.saisieCourses = null;
+      render();
+    } else if (action === 'courses-pris') {
+      var uuidP = el.dataset.cible;
+      if (S.prisCourses[uuidP]) delete S.prisCourses[uuidP];
+      else S.prisCourses[uuidP] = true;
+      enregistrerPris();
+      render();
+    } else if (action === 'courses-envoyer') {
+      preparerEnvoiCoches();
+    } else if (action === 'courses-exporter') {
+      exporterEphemereTelephone();
+    } else if (action === 'courses-importer') {
+      document.getElementById('fichier-courses').click();
+    } else if (action === 'courses-retelecharger') {
+      if (S.dernierLotCourses) {
+        if (telecharger(S.dernierLotCourses.nom, S.dernierLotCourses.json)) {
+          S.depot = { nom: S.dernierLotCourses.nom, nb: S.dernierLotCourses.nb };
+          render();
+        } else {
+          signalerErreur("Le téléchargement n'a pas démarré.");
+        }
+      }
     }
   }
 
@@ -2227,6 +2773,19 @@
       gesteRiche(function (c) { return Core.insererRiche(c.lignes, c.debut, c.fin, colle); });
     });
     racine().addEventListener('click', surClic);
+    // Cases et listes déroulantes des Courses : `change`, et re-rendu — ce sont des
+    // filtres, pas une frappe, il n'y a pas de curseur à préserver.
+    racine().addEventListener('change', function (e) {
+      var champ = e.target;
+      var quoi = champ && champ.dataset && champ.dataset.action;
+      if (quoi === 'courses-coches-seulement') {
+        S.cochesSeulementCourses = champ.checked;
+        render();
+      } else if (quoi === 'courses-theme') {
+        S.themeCourses = champ.value;
+        render();
+      }
+    });
     racine().addEventListener('input', function (e) {
       var champ = e.target;
       if (!champ) return;
@@ -2253,6 +2812,34 @@
         champ.classList.toggle('saisie-riche-vide', lu === '');
         return;
       }
+      // Champs des Courses (18-08-2026) : même règle — l'état suit la frappe, SANS
+      // re-rendu. La recherche est la seule à re-rendre, et seulement quand la frappe
+      // s'arrête : sinon la liste des 264 articles se recomposerait à chaque touche.
+      var actionChamp = champ.dataset && champ.dataset.action;
+      if (actionChamp === 'courses-recherche') {
+        S.rechercheCourses = champ.value;
+        if (S.minuteurRecherche) clearTimeout(S.minuteurRecherche);
+        S.minuteurRecherche = setTimeout(function () {
+          S.minuteurRecherche = null;
+          render();
+          // Le champ est reconstruit par le rendu : on lui rend le focus et le curseur en
+          // fin de texte, sans quoi la frappe suivante partirait dans le vide.
+          var neuf = racine().querySelector('[data-action="courses-recherche"]');
+          if (neuf) {
+            neuf.focus();
+            neuf.setSelectionRange(neuf.value.length, neuf.value.length);
+          }
+        }, 250);
+        return;
+      }
+      if (actionChamp === 'courses-quantite' || actionChamp === 'courses-commentaire') {
+        var uuidS = champ.dataset.cible;
+        if (!S.cochesCourses[uuidS]) S.cochesCourses[uuidS] = { quantite: '', commentaire: '' };
+        S.cochesCourses[uuidS][actionChamp === 'courses-quantite' ? 'quantite' : 'commentaire'] =
+          champ.value;
+        enregistrerCoches();
+        return;
+      }
       // Champs de la fiche Ticket/Idée (data-champ) : l'état suit la frappe, SANS re-rendu
       // — re-rendre à chaque touche ferait perdre le focus, comme pour la saisie libre.
       var nom = champ.dataset && champ.dataset.champ;
@@ -2268,6 +2855,11 @@
       var fichier = e.target.files && e.target.files[0];
       if (fichier) chargerFichierReferentiel(fichier);
       e.target.value = ''; // recharger deux fois le même fichier doit remarcher
+    });
+    document.getElementById('fichier-courses').addEventListener('change', function (e) {
+      var fichier = e.target.files && e.target.files[0];
+      if (fichier) chargerFichierCourses(fichier);
+      e.target.value = '';
     });
     render();
     charger().catch(function (e) {

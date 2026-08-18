@@ -626,6 +626,183 @@
         vrai(!Core.noteVide('• a'));
       });
 
+      // ---- Courses (SPEC du 18-08-2026) ----
+
+      var ART = function (nom, enseigne, theme, options) {
+        options = options || {};
+        return {
+          uuid: 'u-' + nom,
+          nom: nom,
+          theme: theme || 'FRAIS',
+          ordre: options.ordre || 1,
+          enseigne_principale: enseigne || '',
+          enseigne_detail: options.detail || '',
+          repas_rapide: !!options.rapide,
+          coche: !!options.coche,
+          quantite: options.quantite || '',
+          commentaire: options.commentaire || '',
+          remarque: options.remarque || '',
+          notes: options.notes || '',
+          prix: {},
+          achat: '',
+        };
+      };
+
+      test('parseCourses refuse un fichier qui n\'est pas courses.json', function () {
+        var r = Core.parseCourses(JSON.stringify({ format: 'cockpit-backlogs', version: 1 }));
+        vrai(!r.ok);
+        vrai(r.erreur.indexOf('référentiel des courses') !== -1, r.erreur);
+      });
+
+      test('parseCourses refuse une version inconnue par une phrase lisible', function () {
+        var r = Core.parseCourses(JSON.stringify({ format: 'cockpit-courses', version: 9 }));
+        vrai(!r.ok);
+        vrai(r.versionInconnue);
+        vrai(r.erreur.indexOf('version 9') !== -1, r.erreur);
+      });
+
+      test('parseCourses tolère un JSON cassé sans jeter', function () {
+        var r = Core.parseCourses('{ pas du json');
+        vrai(!r.ok);
+        vrai(r.erreur.indexOf('JSON invalide') !== -1, r.erreur);
+      });
+
+      test('parseCourses accepte un instantané SANS éphémère (champ additif)', function () {
+        var r = Core.parseCourses(JSON.stringify({
+          format: 'cockpit-courses', version: 1, genere_le: '2026-08-18 21:00:00',
+          themes: [{ id: 1, libelle: 'FRAIS', ordre: 1 }], articles: [],
+        }));
+        vrai(r.ok);
+        egal(r.ephemere, null);
+        egal(r.themes.length, 1);
+      });
+
+      test('voletDe : trois enseignes au drive, tout le reste sur place', function () {
+        egal(Core.voletDe('super_u'), 'drive_en_ligne');
+        egal(Core.voletDe('picard'), 'drive_en_ligne');
+        egal(Core.voletDe('en_ligne'), 'drive_en_ligne');
+        // ⚠️ Écomiam est une LIVRAISON et tombe pourtant « sur place » : règle littérale
+        // de la spec §7, la même des deux côtés.
+        egal(Core.voletDe('ecomiam'), 'sur_place');
+        egal(Core.voletDe('biocoop'), 'sur_place');
+        egal(Core.voletDe(''), 'sur_place');
+      });
+
+      test('grouperCourses range par enseigne PUIS par thème, dans l\'ordre des courses', function () {
+        var groupes = Core.grouperCourses(
+          [ART('a', 'biocoop', 'FRAIS'), ART('b', 'super_u', 'SURGELÉS'), ART('c', 'super_u', 'FRAIS')],
+          [{ libelle: 'FRAIS', ordre: 1 }, { libelle: 'SURGELÉS', ordre: 2 }],
+        );
+        egal(groupes.map(function (g) { return g.cle; }), ['super_u', 'biocoop']);
+        egal(groupes[0].themes.map(function (t) { return t.theme; }), ['FRAIS', 'SURGELÉS']);
+        egal(groupes[0].total, 2);
+        egal(groupes[0].volet, 'drive_en_ligne');
+      });
+
+      test('filtrerCourses replie les accents et exige TOUS les mots', function () {
+        var liste = [ART('Poivron rouge bio', 'picard', 'SURGELÉS'), ART('Épinards', 'picard', 'SURGELÉS')];
+        egal(Core.filtrerCourses(liste, { requete: 'poivron' }).length, 1);
+        egal(Core.filtrerCourses(liste, { requete: 'epinards' }).length, 1, 'accents repliés');
+        egal(Core.filtrerCourses(liste, { requete: 'poivron bio' }).length, 1, 'deux mots = ET');
+        egal(Core.filtrerCourses(liste, { requete: 'poivron vert' }).length, 0);
+      });
+
+      test('filtrerCourses cherche aussi dans la remarque et les notes', function () {
+        var liste = [ART('Lait', 'super_u', 'FRAIS', { remarque: 'sans nitrites' })];
+        egal(Core.filtrerCourses(liste, { requete: 'nitrites' }).length, 1);
+      });
+
+      test('filtrerCourses : la liste « repas rapides » ne garde que le drapeau', function () {
+        var liste = [ART('a', 'super_u', 'FRAIS', { rapide: true }), ART('b', 'super_u', 'FRAIS')];
+        egal(Core.filtrerCourses(liste, { source: 'repas_rapides' }).length, 1);
+        egal(Core.filtrerCourses(liste, { source: 'complete' }).length, 2);
+      });
+
+      test('le nom du lot de coches est celui du Rust, à la lettre', function () {
+        // Même témoin que le banc Rust : uuid cf7fb494-…, le 15/08/2026 à 17h13m15.
+        egal(
+          Core.cochesFilename('cf7fb494-b355-40e2-a37b-05ae712d5dd7', new Date(2026, 7, 15, 17, 13, 15)),
+          'coches courses 2026-08-15 17h13m15 cf7fb4.json',
+        );
+        egal(
+          Core.ephemereFilename('ab', new Date(2026, 7, 18, 9, 5, 0)),
+          'liste ephemere 2026-08-18 09h05m00 ab0000.json',
+        );
+      });
+
+      test('un lot de coches ne porte QUE ce que le téléphone a coché', function () {
+        var lot = Core.buildLotCoches(
+          { 'u-a': { quantite: '2 briques', commentaire: 'demi-sel' }, 'u-b': {} },
+          'aaaaaaaa-1111-4111-8111-111111111111',
+          '2026-08-18 20:00:00',
+        );
+        egal(lot.format, 'cockpit-courses-coches');
+        egal(lot.version, 1);
+        egal(lot.coches.length, 2);
+        egal(lot.coches[0], { article_uuid: 'u-a', quantite: '2 briques', commentaire: 'demi-sel' });
+        egal(lot.coches[1], { article_uuid: 'u-b', quantite: '', commentaire: '' });
+      });
+
+      test('un lot VIDE reste un document valide (il ne décoche rien)', function () {
+        var lot = Core.buildLotCoches({}, 'x', '2026-08-18 20:00:00');
+        egal(lot.coches, []);
+        // ⚠️ Le point de §8.2 : un lot est ADDITIF. Un article retiré des coches locales
+        // n'apparaît pas dans le lot — il ne devient jamais un ordre de décochage.
+      });
+
+      test('l\'éphémère du téléphone prend l\'UNION des coches PC et locales', function () {
+        var articles = [
+          ART('Pain', 'boulangerie', 'CÉRÉALES', { coche: true, quantite: 'une miche' }),
+          ART('Beurre', 'super_u', 'FRAIS'),
+          ART('Sucre', 'super_u', 'ÉPICERIE'),
+        ];
+        var doc = Core.buildEphemereTelephone(
+          articles, { 'u-Beurre': { quantite: '1 plaquette', commentaire: '' } },
+          'complete', 'dddddddd', '2026-08-19 10:00:00',
+        );
+        egal(doc.format, 'cockpit-courses-ephemere');
+        egal(doc.origine, 'telephone', 'c\'est ce champ qui fait normaliser le fichier par le PC');
+        egal(doc.remplace_uuid, '');
+        egal(doc.volets.sur_place.map(function (l) { return l.nom; }), ['Pain']);
+        egal(doc.volets.drive_en_ligne.map(function (l) { return l.nom; }), ['Beurre']);
+        egal(doc.volets.sur_place[0].quantite, 'une miche', 'la quantité du PC est reprise');
+        egal(doc.volets.drive_en_ligne[0].quantite, '1 plaquette', 'celle du téléphone gagne');
+      });
+
+      test('l\'éphémère du téléphone respecte la liste source', function () {
+        var articles = [
+          ART('Pain', 'boulangerie', 'CÉRÉALES', { coche: true, rapide: true }),
+          ART('Cirage', 'autre', 'DIVERS', { coche: true }),
+        ];
+        var doc = Core.buildEphemereTelephone(articles, {}, 'repas_rapides', 'x', '2026-08-19 10:00:00');
+        egal(doc.source, 'repas_rapides');
+        egal(doc.volets.sur_place.map(function (l) { return l.nom; }), ['Pain']);
+      });
+
+      test('l\'éphémère groupe le volet « sur place » par lieu', function () {
+        var articles = [
+          ART('b', 'biocoop', 'FRAIS', { coche: true }),
+          ART('a', 'boucher', 'FRAIS', { coche: true }),
+          ART('c', 'biocoop', 'FRAIS', { coche: true }),
+        ];
+        var doc = Core.buildEphemereTelephone(articles, {}, 'complete', 'x', '2026-08-19 10:00:00');
+        egal(
+          doc.volets.sur_place.map(function (l) { return l.enseigne_principale; }),
+          ['biocoop', 'biocoop', 'boucher'],
+        );
+      });
+
+      test('le document fabriqué se relit par son propre analyseur', function () {
+        // Le contrat doit tenir dans les DEUX sens, y compris ici.
+        var doc = Core.buildEphemereTelephone([], {}, 'complete', 'x', '2026-08-19 10:00:00');
+        var texte = Core.documentJson(doc);
+        var relu = JSON.parse(texte);
+        egal(relu.format, 'cockpit-courses-ephemere');
+        egal(relu.version, 1);
+        vrai(texte.indexOf('\n  "format"') !== -1 || texte.indexOf('"format"') !== -1);
+      });
+
+
       // ---- Bilan ----
 
       var echecs = resultats.filter(function (r) { return !r.ok; });

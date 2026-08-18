@@ -190,6 +190,32 @@
     });
   }
 
+  // ---- Courses (18-08-2026) ---------------------------------------------------
+  //
+  // ⚠️ **Aucune migration d'IndexedDB.** Le magasin `meta` est un clé/valeur générique :
+  // le référentiel des courses, les coches locales, les « pris » et le dernier lot
+  // d'envoi y entrent par leur clé, sans toucher ni au schéma ni à `VERSION_BASE`. Un
+  // téléphone qui ouvre cette version ne peut donc perdre ni une note non envoyée, ni sa
+  // file d'envoi — une montée de version aurait été un risque pris pour rien.
+  //
+  // Les coches et les « pris » sont **purement locaux** : ils ne partent au PC que par un
+  // fichier que Julien dépose lui-même, et le « pris » ne part jamais (la liste éphémère
+  // est jetable, SPEC §6).
+
+  function ecrireMeta(cle, valeur) {
+    return transaction(['meta'], 'readwrite').then(function (t) {
+      return promesse(t.objectStore('meta').put({ cle: cle, valeur: valeur }));
+    });
+  }
+
+  function lireMeta(cle, defaut) {
+    return transaction(['meta'], 'readonly').then(function (t) {
+      return promesse(t.objectStore('meta').get(cle)).then(function (l) {
+        return l ? l.valeur : defaut;
+      });
+    });
+  }
+
   global.Store = {
     ouvrir: ouvrir,
     demanderPersistance: demanderPersistance,
@@ -205,5 +231,7 @@
     lireReferentiel: lireReferentiel,
     enregistrerDernierLot: enregistrerDernierLot,
     lireDernierLot: lireDernierLot,
+    ecrireMeta: ecrireMeta,
+    lireMeta: lireMeta,
   };
 })(window);

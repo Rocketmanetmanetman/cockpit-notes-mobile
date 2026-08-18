@@ -958,10 +958,256 @@
     return null;
   }
 
+  // ============================================================================
+  // COURSES (SPEC du 18-08-2026) — logique pure du 5ᵉ onglet.
+  //
+  // Le téléphone est **bête et hors ligne** : il lit `courses.json`, coche au pouce, et
+  // fabrique deux fichiers que Julien dépose lui-même dans le dossier Drive. Il n'écrit
+  // jamais rien directement dans le Cockpit, et n'appelle personne.
+  //
+  // ⚠️ Les trois formats ci-dessous sont le **miroir exact** de `courses/contrats.rs`. Le
+  // Rust reste l'autorité : il refuse une version qu'il ne connaît pas, et ignore un champ
+  // qu'il ne comprend pas. Ce fichier tient la même règle dans l'autre sens.
+  // ============================================================================
+
+  var FORMAT_COURSES = 'cockpit-courses';
+  var FORMAT_COCHES = 'cockpit-courses-coches';
+  var FORMAT_EPHEMERE = 'cockpit-courses-ephemere';
+
+  // Les trois enseignes qui partent au drive — **miroir de `contrats::volet_de`**. Tout le
+  // reste s'achète sur place, y compris Écomiam (règle littérale de la spec §7).
+  var ENSEIGNES_DRIVE = { super_u: 1, picard: 1, en_ligne: 1 };
+
+  function voletDe(enseigne) {
+    return ENSEIGNES_DRIVE[String(enseigne || '').trim()] ? 'drive_en_ligne' : 'sur_place';
+  }
+
+  // L'ordre des enseignes à l'écran : celui des courses de Julien, pas l'alphabet.
+  var ORDRE_ENSEIGNES = [
+    'super_u', 'picard', 'biocoop', 'boucher', 'boulangerie', 'marche', 'en_ligne', 'ecomiam', 'autre',
+  ];
+
+  var LIBELLES_ENSEIGNE = {
+    super_u: 'Super U', picard: 'Picard', biocoop: 'Biocoop', boucher: 'Boucher',
+    boulangerie: 'Boulangerie', marche: 'Marché', en_ligne: 'En ligne', ecomiam: 'Ecomiam',
+    autre: 'Autre', '': 'Sans enseigne',
+  };
+
+  function libelleEnseigne(cle) {
+    return LIBELLES_ENSEIGNE[cle] || cle;
+  }
+
+  // ---- Lecture de `courses.json` (§8.1) ----
+  //
+  // Même doctrine que `parseReferentiel` : format inconnu et version inconnue sont refusés
+  // par une phrase que Julien peut lire, jamais par une demi-lecture.
+  function parseCourses(texte) {
+    var brut;
+    try {
+      brut = JSON.parse(texte);
+    } catch (e) {
+      return { ok: false, erreur: "Ce fichier n'est pas lisible (JSON invalide)." };
+    }
+    if (!brut || typeof brut !== 'object' || brut.format !== FORMAT_COURSES) {
+      return { ok: false, erreur: "Ce fichier n'est pas le référentiel des courses (courses.json)." };
+    }
+    if (brut.version !== VERSION) {
+      return {
+        ok: false,
+        versionInconnue: true,
+        erreur:
+          'Ce fichier est en version ' + brut.version + ', que cette application ne comprend pas. ' +
+          "Mets à jour l'application avant de le charger.",
+      };
+    }
+    return {
+      ok: true,
+      genere_le: brut.genere_le || '',
+      themes: Array.isArray(brut.themes) ? brut.themes : [],
+      articles: Array.isArray(brut.articles) ? brut.articles : [],
+      omega3: brut.omega3 && typeof brut.omega3 === 'object' ? brut.omega3 : null,
+      // Champ additif : un instantané plus ancien n'en a pas, et l'écran le dit.
+      ephemere: brut.ephemere && typeof brut.ephemere === 'object' ? brut.ephemere : null,
+    };
+  }
+
+  // ---- Le regroupement à deux niveaux, enseigne → thème (§6) ----
+  //
+  // Miroir de `grouper` côté PC. Les deux écrans doivent montrer le MÊME rangement : c'est
+  // ce qui fait qu'on retrouve un article au même endroit sur les deux appareils.
+  function grouperCourses(articles, themes) {
+    var rangTheme = {};
+    themes.forEach(function (t, i) { rangTheme[t.libelle] = t.ordre || i + 1; });
+
+    var parEnseigne = {};
+    articles.forEach(function (a) {
+      var cle = String(a.enseigne_principale || '');
+      if (!parEnseigne[cle]) parEnseigne[cle] = {};
+      var theme = String(a.theme || '');
+      if (!parEnseigne[cle][theme]) parEnseigne[cle][theme] = [];
+      parEnseigne[cle][theme].push(a);
+    });
+
+    return Object.keys(parEnseigne)
+      .map(function (cle) {
+        var blocs = Object.keys(parEnseigne[cle])
+          .map(function (theme) {
+            var liste = parEnseigne[cle][theme].slice().sort(function (a, b) {
+              return (a.ordre || 0) - (b.ordre || 0);
+            });
+            return { theme: theme, ordre: rangTheme[theme] || 9999, articles: liste };
+          })
+          .sort(function (a, b) { return a.ordre - b.ordre; });
+        var total = 0;
+        blocs.forEach(function (b) { total += b.articles.length; });
+        return {
+          cle: cle,
+          libelle: libelleEnseigne(cle),
+          volet: voletDe(cle),
+          themes: blocs,
+          total: total,
+        };
+      })
+      .sort(function (a, b) {
+        var ra = ORDRE_ENSEIGNES.indexOf(a.cle);
+        var rb = ORDRE_ENSEIGNES.indexOf(b.cle);
+        return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
+      });
+  }
+
+  // Repli de casse et d'accents — « video » trouve « vidéo ». Même règle que sur le PC.
+  function replierTexte(texte) {
+    return String(texte || '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase();
+  }
+
+  // Le filtre de l'écran : liste source, recherche (nom, remarque, notes), cochés seulement,
+  // thème et enseigne. Plusieurs mots = ET.
+  function filtrerCourses(articles, filtres) {
+    var f = filtres || {};
+    var mots = replierTexte(f.requete || '').split(/\s+/).filter(Boolean);
+    return articles.filter(function (a) {
+      if (f.source === 'repas_rapides' && !a.repas_rapide) return false;
+      if (f.cochesSeulement && !a.coche) return false;
+      if (f.theme && a.theme !== f.theme) return false;
+      if (f.enseigne && String(a.enseigne_principale || '') !== f.enseigne) return false;
+      if (mots.length === 0) return true;
+      var champs = replierTexte(a.nom) + ' ' + replierTexte(a.remarque) + ' ' + replierTexte(a.notes);
+      return mots.every(function (mot) { return champs.indexOf(mot) !== -1; });
+    });
+  }
+
+  // ---- Ce que le téléphone FABRIQUE ----
+
+  // `coches courses AAAA-MM-JJ HHhMMmSS xxxxxx.json` — même nommeur que le lot de notes,
+  // seul le préfixe change. L'ordre alphabétique reste l'ordre chronologique.
+  function nomFichierCourses(prefixe, uuidFichier, d) {
+    d = d || new Date();
+    var court = String(uuidFichier || '').replace(/[^0-9a-f]/gi, '').slice(0, 6).toLowerCase();
+    while (court.length < 6) court += '0';
+    return (
+      prefixe + ' ' + dateISO(d) + ' ' + deux(d.getHours()) + 'h' + deux(d.getMinutes()) + 'm' +
+      deux(d.getSeconds()) + ' ' + court + '.json'
+    );
+  }
+
+  function cochesFilename(uuidLot, d) {
+    return nomFichierCourses('coches courses', uuidLot, d);
+  }
+
+  function ephemereFilename(uuidDoc, d) {
+    return nomFichierCourses('liste ephemere', uuidDoc, d);
+  }
+
+  /**
+   * Le lot de coches (§8.2). **Additif seulement : un lot ne décoche JAMAIS.**
+   *
+   * `coches` est la carte locale { article_uuid: { quantite, commentaire } } — seules les
+   * coches POSÉES sur le téléphone y figurent. Une coche retirée ici disparaît simplement
+   * de la carte : elle ne devient pas un ordre de décochage, parce que décocher est un
+   * geste du PC.
+   */
+  function buildLotCoches(coches, uuidLot, genereLe) {
+    var lignes = Object.keys(coches || {}).map(function (uuidArticle) {
+      var c = coches[uuidArticle] || {};
+      return {
+        article_uuid: uuidArticle,
+        quantite: String(c.quantite || ''),
+        commentaire: String(c.commentaire || ''),
+      };
+    });
+    return {
+      format: FORMAT_COCHES,
+      version: VERSION,
+      uuid: uuidLot,
+      genere_le: genereLe,
+      coches: lignes,
+    };
+  }
+
+  /**
+   * Une liste éphémère fabriquée par le téléphone (§8.3), à partir du référentiel importé
+   * et des coches locales — **leur UNION** : ce que le PC avait déjà coché et ce que Julien
+   * vient de cocher ici partent ensemble.
+   *
+   * `origine` vaut `telephone` : c'est ce champ, et lui seul, qui dira au PC de la
+   * normaliser. Jamais l'endroit où le fichier se trouve.
+   */
+  function buildEphemereTelephone(articles, coches, source, uuidDoc, genereLe) {
+    var volets = { sur_place: [], drive_en_ligne: [] };
+    (articles || []).forEach(function (a) {
+      var locale = (coches || {})[a.uuid];
+      if (!a.coche && !locale) return;
+      if (source === 'repas_rapides' && !a.repas_rapide) return;
+      var ligne = {
+        article_uuid: a.uuid,
+        nom: a.nom,
+        theme: a.theme || '',
+        enseigne_principale: a.enseigne_principale || '',
+        enseigne_detail: a.enseigne_detail || '',
+        // La quantité du téléphone prend le pas si elle est renseignée — même règle que la
+        // fusion des coches côté PC.
+        quantite: (locale && locale.quantite) || a.quantite || '',
+        commentaire: (locale && locale.commentaire) || a.commentaire || '',
+        prix: a.prix || {},
+        remarque: a.remarque || '',
+        achat: a.achat || '',
+      };
+      volets[voletDe(a.enseigne_principale)].push(ligne);
+    });
+    var parLieu = function (x, y) {
+      var a = (x.enseigne_principale || '') + ' ' + (x.theme || '') + ' ' + x.nom;
+      var b = (y.enseigne_principale || '') + ' ' + (y.theme || '') + ' ' + y.nom;
+      return a < b ? -1 : a > b ? 1 : 0;
+    };
+    volets.sur_place.sort(parLieu);
+    volets.drive_en_ligne.sort(parLieu);
+    return {
+      format: FORMAT_EPHEMERE,
+      version: VERSION,
+      uuid: uuidDoc,
+      genere_le: genereLe,
+      origine: 'telephone',
+      source: source === 'repas_rapides' ? 'repas_rapides' : 'complete',
+      remplace_uuid: '',
+      volets: volets,
+    };
+  }
+
+  function documentJson(doc) {
+    return JSON.stringify(doc, null, 2);
+  }
+
+
   global.Core = {
     FORMAT_LOT: FORMAT_LOT,
     FORMAT_PROJETS: FORMAT_PROJETS,
     FORMAT_BACKLOGS: FORMAT_BACKLOGS,
+    FORMAT_COURSES: FORMAT_COURSES,
+    FORMAT_COCHES: FORMAT_COCHES,
+    FORMAT_EPHEMERE: FORMAT_EPHEMERE,
     VERSION: VERSION,
     SEPARATEUR: SEPARATEUR,
     dateISO: dateISO,
@@ -1014,5 +1260,18 @@
     basculerStyleRiche: basculerStyleRiche,
     styleActifRiche: styleActifRiche,
     retourArriereRiche: retourArriereRiche,
+    // Courses (18-08-2026) — 5ᵉ onglet.
+    parseCourses: parseCourses,
+    voletDe: voletDe,
+    libelleEnseigne: libelleEnseigne,
+    grouperCourses: grouperCourses,
+    filtrerCourses: filtrerCourses,
+    replierTexte: replierTexte,
+    cochesFilename: cochesFilename,
+    ephemereFilename: ephemereFilename,
+    buildLotCoches: buildLotCoches,
+    buildEphemereTelephone: buildEphemereTelephone,
+    documentJson: documentJson,
+    ORDRE_ENSEIGNES: ORDRE_ENSEIGNES,
   };
 })(window);

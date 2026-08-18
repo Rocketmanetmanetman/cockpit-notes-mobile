@@ -1216,3 +1216,419 @@ code {
   color: rgba(38, 40, 42, 0.5);
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
+
+/* ==========================================================================
+   COURSES (SPEC du 18-08-2026) — 5ᵉ onglet.
+
+   Une règle domine tout : **c'est un pouce qui coche, en magasin, une main
+   pleine**. Les cases font 34 px de côté, les cibles de clic couvrent toute la
+   ligne, et l'état coché se voit de loin — case pleine + libellé barré.
+   ========================================================================== */
+
+.bloc-courses-entete {
+  padding-bottom: 12px;
+}
+
+.courses-bascule {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.courses-bascule .bouton {
+  flex: 1 1 0;
+}
+
+.courses-filtres-tel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.courses-filtre-case {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+}
+
+.courses-filtre-case input {
+  width: 24px;
+  height: 24px;
+}
+
+.courses-barre-tel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+/* ---- Niveau 1 : l'enseigne ---- */
+
+.bloc-enseigne {
+  padding: 0;
+  overflow: hidden;
+}
+
+.courses-entete-tel,
+.courses-entete-theme-tel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  background: rgba(52, 80, 90, 0.09);
+  font: inherit;
+  font-size: 17px;
+  text-align: left;
+  color: inherit;
+}
+
+.courses-entete-theme-tel {
+  background: transparent;
+  font-size: 15px;
+  padding: 10px 16px 10px 30px;
+  border-top: 1px solid rgba(52, 80, 90, 0.08);
+}
+
+.courses-chevron-tel {
+  width: 14px;
+  opacity: 0.55;
+}
+
+.courses-titre-tel {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 15px;
+}
+
+.courses-compte-tel {
+  margin-left: auto;
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+.courses-compte-tel strong {
+  opacity: 1;
+  color: var(--sauge, #7c9b86);
+}
+
+/* ---- La ligne d'un article ---- */
+
+.courses-article-tel,
+.courses-pris-tel {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-top: 1px solid rgba(52, 80, 90, 0.07);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+
+.courses-article-tel.coche,
+.courses-pris-tel.pris {
+  background: rgba(124, 155, 134, 0.13);
+}
+
+/* Grosse case : 34 px, c'est la taille qu'un pouce vise sans regarder. */
+.courses-case-tel {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 2px solid rgba(52, 80, 90, 0.4);
+  border-radius: 7px;
+  background: #fffdf9;
+  font-size: 20px;
+  line-height: 30px;
+  text-align: center;
+  color: transparent;
+  padding: 0;
+}
+
+.courses-case-tel.cochee {
+  background: var(--sauge, #7c9b86);
+  border-color: var(--sauge, #7c9b86);
+  color: #fff;
+}
+
+.courses-corps-tel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.courses-nom-tel {
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+/* Coché = TRÈS visible (§6) : la case est pleine ET le libellé est barré. */
+.courses-pris-tel.pris .courses-nom-tel {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.courses-lieu-tel,
+.courses-remarque-tel,
+.courses-commentaire-tel {
+  font-size: 13px;
+  line-height: 1.35;
+  opacity: 0.6;
+}
+
+.courses-commentaire-tel {
+  font-style: italic;
+}
+
+.courses-lieu-titre {
+  margin: 12px 0 0;
+  padding: 0 16px;
+  font-weight: 600;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 13px;
+}
+
+.courses-quantite-tel {
+  align-self: flex-start;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(52, 80, 90, 0.12);
+}
+
+.courses-saisie-tel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bouton-mince {
+  align-self: flex-start;
+  padding: 5px 12px;
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+/* ==========================================================================
+   COURSES (SPEC du 18-08-2026) — 5ᵉ onglet.
+
+   Une règle domine tout : **c'est un pouce qui coche, en magasin, une main
+   pleine**. Les cases font 34 px de côté, les cibles de clic couvrent toute la
+   ligne, et l'état coché se voit de loin — case pleine + libellé barré.
+   ========================================================================== */
+
+.bloc-courses-entete {
+  padding-bottom: 12px;
+}
+
+.courses-bascule {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.courses-bascule .bouton {
+  flex: 1 1 0;
+}
+
+.courses-filtres-tel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.courses-filtre-case {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+}
+
+.courses-filtre-case input {
+  width: 24px;
+  height: 24px;
+}
+
+.courses-barre-tel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+/* ---- Niveau 1 : l'enseigne ---- */
+
+.bloc-enseigne {
+  padding: 0;
+  overflow: hidden;
+}
+
+.courses-entete-tel,
+.courses-entete-theme-tel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  background: rgba(52, 80, 90, 0.09);
+  font: inherit;
+  font-size: 17px;
+  text-align: left;
+  color: inherit;
+}
+
+.courses-entete-theme-tel {
+  background: transparent;
+  font-size: 15px;
+  padding: 10px 16px 10px 30px;
+  border-top: 1px solid rgba(52, 80, 90, 0.08);
+}
+
+.courses-chevron-tel {
+  width: 14px;
+  opacity: 0.55;
+}
+
+.courses-titre-tel {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 15px;
+}
+
+.courses-compte-tel {
+  margin-left: auto;
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+.courses-compte-tel strong {
+  opacity: 1;
+  color: var(--sauge, #7c9b86);
+}
+
+/* ---- La ligne d'un article ---- */
+
+.courses-article-tel,
+.courses-pris-tel {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-top: 1px solid rgba(52, 80, 90, 0.07);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+
+.courses-article-tel.coche,
+.courses-pris-tel.pris {
+  background: rgba(124, 155, 134, 0.13);
+}
+
+/* Grosse case : 34 px, c'est la taille qu'un pouce vise sans regarder. */
+.courses-case-tel {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 2px solid rgba(52, 80, 90, 0.4);
+  border-radius: 7px;
+  background: #fffdf9;
+  font-size: 20px;
+  line-height: 30px;
+  text-align: center;
+  color: transparent;
+  padding: 0;
+}
+
+.courses-case-tel.cochee {
+  background: var(--sauge, #7c9b86);
+  border-color: var(--sauge, #7c9b86);
+  color: #fff;
+}
+
+.courses-corps-tel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.courses-nom-tel {
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+/* Coché = TRÈS visible (§6) : la case est pleine ET le libellé est barré. */
+.courses-pris-tel.pris .courses-nom-tel {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.courses-lieu-tel,
+.courses-remarque-tel,
+.courses-commentaire-tel {
+  font-size: 13px;
+  line-height: 1.35;
+  opacity: 0.6;
+}
+
+.courses-commentaire-tel {
+  font-style: italic;
+}
+
+.courses-lieu-titre {
+  margin: 12px 0 0;
+  padding: 0 16px;
+  font-weight: 600;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 13px;
+}
+
+.courses-quantite-tel {
+  align-self: flex-start;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(52, 80, 90, 0.12);
+}
+
+.courses-saisie-tel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bouton-mince {
+  align-self: flex-start;
+  padding: 5px 12px;
+  font-size: 14px;
+  margin-top: 6px;
+}

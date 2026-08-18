@@ -20,6 +20,11 @@
     <div id="app"></div>
     <!-- Sélecteur de fichier des référentiels, HORS de #app : il survit aux rendus. -->
     <input type="file" id="fichier-ref" accept=".json,application/json" hidden />
+    <!-- Jumeau du précédent, pour `courses.json` (SPEC Courses §6). Deux champs plutôt
+         qu'un seul partagé : le gestionnaire saurait alors quel référentiel il vient de
+         recevoir uniquement en devinant, et un mauvais fichier serait lu par le mauvais
+         analyseur. -->
+    <input type="file" id="fichier-courses" accept=".json,application/json" hidden />
     <script src="./core.js"></script>
     <script src="./store.js"></script>
     <script src="./app.js"></script>
