@@ -1652,3 +1652,26 @@ code {
 .courses-saisie-tel select.champ {
   font-size: 15px;
 }
+
+/* Cochée sur le PC : la case le dit et n'accepte plus l'appui — un geste sans effet est
+   pire qu'un bouton visiblement fermé. */
+.courses-case-tel.cochee-pc {
+  opacity: 0.62;
+  border-style: dashed;
+}
+
+/* « Préciser » : à droite de la ligne, dans la hauteur qui existe déjà.
+   34 px comme la case à cocher — c'est la mesure d'un pouce, et c'est la même partout. */
+.courses-preciser-tel {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(52, 80, 90, 0.3);
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: rgba(52, 80, 90, 0.75);
+  padding: 0;
+}

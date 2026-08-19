@@ -1386,15 +1386,21 @@
     var quantite = (locale && locale.quantite) || a.quantite || '';
     var commentaire = (locale && locale.commentaire) || a.commentaire || '';
     var enSaisie = S.saisieCourses === a.uuid;
+    // Cochée sur le PC et pas ici : le téléphone ne peut ni la décocher ni l'enrichir par
+    // la case. Elle est donc **inerte**, plutôt que d'accepter un appui sans effet.
+    var parLePc = coche && !locale;
     var retenue = Core.enseigneRetenue(a, S.cochesCourses);
     var detournee = coche && retenue !== a.enseigne_id;
     var prix = (a.prix || {})[String(retenue)] || '';
     return (
       '<div class="courses-article-tel' + (coche ? ' coche' : '') + '">' +
       // Grosse case, cible large : c'est un pouce qui coche, pas une souris.
-      '<button type="button" class="courses-case-tel' + (coche ? ' cochee' : '') + '" ' +
+      '<button type="button" class="courses-case-tel' + (coche ? ' cochee' : '') +
+      (parLePc ? ' cochee-pc' : '') + '" ' +
+      (parLePc ? 'disabled ' : '') +
       'data-action="courses-cocher" data-cible="' + ech(a.uuid) + '" ' +
-      'aria-label="Cocher ' + ech(a.nom) + '">' + (coche ? '✓' : '') + '</button>' +
+      'aria-label="' + (parLePc ? 'Déjà cochée sur le PC : ' : 'Cocher ') + ech(a.nom) + '">' +
+      (coche ? '✓' : '') + '</button>' +
       '<div class="courses-corps-tel">' +
       '<span class="courses-nom-tel">' + ech(a.nom) +
       (a.repas_rapide ? ' <span class="badge-genre">rapide</span>' : '') + '</span>' +
@@ -1429,11 +1435,17 @@
           '</select>' +
           '<button type="button" class="bouton bouton-doux" data-action="courses-fermer-saisie">Fermer</button>' +
           '</div>'
-        : coche
-          ? '<button type="button" class="bouton bouton-doux bouton-mince" data-action="courses-preciser" ' +
-            'data-cible="' + ech(a.uuid) + '">Préciser</button>'
-          : '') +
+        : '') +
       '</div>' +
+      // ⚠️ **« Préciser » est À DROITE, hors du corps de la ligne.** Sous le nom, il faisait
+      // grandir la ligne de 28 px à la coche — exactement ce que Julien ne veut plus voir
+      // (« je ne veux pas que l'article change sa hauteur quand je clique dessus »). Ici il
+      // se loge dans la hauteur qui existe déjà, tout en gardant une cible que le pouce
+      // atteint. Mesuré : la ligne ne bouge pas d'un pixel.
+      (coche && !enSaisie
+        ? '<button type="button" class="courses-preciser-tel" data-action="courses-preciser" ' +
+          'data-cible="' + ech(a.uuid) + '" aria-label="Préciser ' + ech(a.nom) + '">⋯</button>'
+        : '') +
       '</div>'
     );
   }
@@ -2694,19 +2706,22 @@
       var uuidA = el.dataset.cible;
       var articleC = S.courses.articles.filter(function (a) { return a.uuid === uuidA; })[0];
       if (!articleC) return;
+      // ⚠️ **Cocher n'ouvre PLUS la saisie** (demande du 19-08-2026, PC et téléphone :
+      // « je ne veux pas que l'article change sa hauteur quand je clique dessus »). La ligne
+      // garde sa taille, et tout ce qui est en dessous reste où le pouce l'avait vu. La
+      // précision se demande, par le bouton « Préciser » qui apparaît une fois coché.
       if (S.cochesCourses[uuidA]) {
         // Décocher ici retire la coche LOCALE, et rien d'autre : si le PC l'avait déjà
         // cochée, elle reste cochée là-bas. Décocher est un geste du PC (§8.2).
         delete S.cochesCourses[uuidA];
         S.saisieCourses = null;
       } else if (articleC.coche) {
-        // Déjà cochée par le PC : il n'y a rien à ajouter, on ouvre juste la précision.
-        S.saisieCourses = S.saisieCourses === uuidA ? null : uuidA;
-        render();
+        // Déjà cochée par le PC, et pas ici : il n'y a rien à cocher ni à décocher. La case
+        // est d'ailleurs inerte à l'écran — un appui n'a aucune raison de faire quoi que ce
+        // soit, et surtout pas d'ouvrir un formulaire.
         return;
       } else {
         S.cochesCourses[uuidA] = { quantite: '', commentaire: '' };
-        S.saisieCourses = uuidA;
       }
       enregistrerCoches();
       render();
