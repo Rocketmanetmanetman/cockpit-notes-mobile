@@ -1675,3 +1675,37 @@ code {
   color: rgba(52, 80, 90, 0.75);
   padding: 0;
 }
+
+/* Une ligne de la liste à faire = la grande cible « pris » + le bouton de bascule à côté.
+   ⚠️ Le bouton est un FRÈRE de la ligne : un <button> dans un <button> n'est pas valide. */
+.courses-ligne-tel {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border-top: 1px solid rgba(52, 80, 90, 0.07);
+}
+
+.courses-ligne-tel.pris {
+  background: rgba(124, 155, 134, 0.13);
+}
+
+/* La ligne porte désormais le liseré et le fond : le bouton ne les redouble pas. */
+.courses-ligne-tel .courses-pris-tel {
+  border-top: 0;
+  background: transparent;
+}
+
+/* « Je ne le trouve pas au drive, je l'achèterai sur place. » 34 px, comme la case. */
+.courses-bascule-tel {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  margin-right: 12px;
+  border: 1px solid rgba(52, 80, 90, 0.3);
+  border-radius: 7px;
+  background: transparent;
+  font: inherit;
+  font-size: 17px;
+  line-height: 1;
+  padding: 0;
+}

@@ -99,6 +99,13 @@
     // Le « pris » de la liste éphémère — local aussi, et il ne part JAMAIS : la liste est
     // jetable, deux vues du même papier n'ont pas à se synchroniser.
     prisCourses: {},
+    // ⚠️ **Les articles qu'on a fait passer du drive au « sur place », ICI et ICI SEULEMENT.**
+    // Julien commande son drive, ne trouve pas un article, et veut l'acheter en magasin sans
+    // rien renvoyer au PC : c'est une décision prise dans le rayon, pas une correction du
+    // référentiel. Elle ne part donc dans aucun fichier, et le PC n'en saura jamais rien.
+    // Forme : { pour: '<uuid de la liste éphémère>', articles: { '<uuid>': true } } — la
+    // liste est nommée pour que les bascules d'hier ne s'appliquent pas à celle de demain.
+    voletForce: { pour: '', articles: {} },
     // L'article dont la saisie quantité + commentaire est ouverte.
     saisieCourses: null,
     lotCoursesPret: null,
@@ -1248,6 +1255,24 @@
     return Store.ecrireMeta('courses_coches', S.cochesCourses).catch(function () {});
   }
 
+  function enregistrerVoletForce() {
+    return Store.ecrireMeta('courses_volet_force', S.voletForce).catch(function () {});
+  }
+
+  /** Les deux volets de la liste à faire, une fois les bascules locales appliquées. */
+  function voletsAvecBascules(eph) {
+    var surPlace = (eph.volets && eph.volets.sur_place ? eph.volets.sur_place : []).slice();
+    var drive = [];
+    var force = S.voletForce.pour === eph.uuid ? S.voletForce.articles : {};
+    (eph.volets && eph.volets.drive_en_ligne ? eph.volets.drive_en_ligne : []).forEach(
+      function (l) {
+        if (force[l.article_uuid]) surPlace.push(l);
+        else drive.push(l);
+      },
+    );
+    return { sur_place: surPlace, drive_en_ligne: drive };
+  }
+
   function enregistrerPris() {
     return Store.ecrireMeta('courses_pris', S.prisCourses).catch(function () {});
   }
@@ -1505,21 +1530,31 @@
         'quand le PC en a exporté une.</p>'
       );
     }
-    var lignes = (eph.volets && eph.volets.sur_place ? eph.volets.sur_place : [])
-      .concat(eph.volets && eph.volets.drive_en_ligne ? eph.volets.drive_en_ligne : []);
+    var volets = voletsAvecBascules(eph);
+    var lignes = volets.sur_place.concat(volets.drive_en_ligne);
     var pris = lignes.filter(function (l) { return S.prisCourses[l.article_uuid]; }).length;
+    var bascules = Object.keys(
+      S.voletForce.pour === eph.uuid ? S.voletForce.articles : {},
+    ).length;
 
     return (
       '<section class="bloc">' +
       '<p class="indicateur">Liste du ' + ech(Core.horodatageFr(eph.genere_le)) +
       ' · <strong>' + pris + ' / ' + lignes.length + ' pris</strong></p>' +
+      (bascules > 0
+        ? '<p class="explication">' + bascules +
+          (bascules === 1 ? ' article passé' : ' articles passés') +
+          ' du drive au magasin. <strong>Ce choix ne vaut que sur ce téléphone</strong> : ' +
+          (bascules === 1 ? 'le PC garde son enseigne telle quelle.' : 'le PC garde leur enseigne telle quelle.') +
+          '</p>'
+        : '') +
       '</section>' +
-      voletTelephone('À acheter sur place', eph.volets ? eph.volets.sur_place : []) +
-      voletTelephone('Drive & en ligne', eph.volets ? eph.volets.drive_en_ligne : [])
+      voletTelephone('À acheter sur place', volets.sur_place, eph.uuid) +
+      voletTelephone('Drive & en ligne', volets.drive_en_ligne, eph.uuid)
     );
   }
 
-  function voletTelephone(titre, lignes) {
+  function voletTelephone(titre, lignes, uuidEphemere) {
     lignes = lignes || [];
     if (lignes.length === 0) return '';
     var pris = lignes.filter(function (l) { return S.prisCourses[l.article_uuid]; }).length;
@@ -1539,17 +1574,32 @@
           '<p class="courses-lieu-tel courses-lieu-titre">' + ech(g.lieu) + '</p>' +
           g.lignes.map(function (l) {
             var estPris = !!S.prisCourses[l.article_uuid];
+            var force =
+              S.voletForce.pour === uuidEphemere && !!S.voletForce.articles[l.article_uuid];
+            // ⚠️ Le bouton de bascule est un FRÈRE de la ligne, jamais un enfant : un
+            // <button> dans un <button> n'est pas du HTML valide, et le clic partirait au
+            // mauvais endroit. D'où l'enveloppe, et la même cible de 34 px que partout.
             return (
+              '<div class="courses-ligne-tel' + (estPris ? ' pris' : '') + '">' +
               '<button type="button" class="courses-pris-tel' + (estPris ? ' pris' : '') + '" ' +
               'data-action="courses-pris" data-cible="' + ech(l.article_uuid) + '">' +
               '<span class="courses-case-tel' + (estPris ? ' cochee' : '') + '">' +
               (estPris ? '✓' : '') + '</span>' +
               '<span class="courses-corps-tel">' +
-              '<span class="courses-nom-tel">' + ech(l.nom) + '</span>' +
+              '<span class="courses-nom-tel">' + ech(l.nom) +
+              (force ? ' <span class="badge-genre">passé au magasin</span>' : '') + '</span>' +
               (l.quantite ? '<span class="courses-quantite-tel">' + ech(l.quantite) + '</span>' : '') +
               (l.prix ? '<span class="courses-prix-tel">' + ech(l.prix) + '</span>' : '') +
               (l.commentaire ? '<span class="courses-commentaire-tel">' + ech(l.commentaire) + '</span>' : '') +
-              '</span></button>'
+              '</span></button>' +
+              (force || titre.indexOf('Drive') === 0
+                ? '<button type="button" class="courses-bascule-tel" ' +
+                  'data-action="courses-basculer-volet" data-cible="' + ech(l.article_uuid) + '" ' +
+                  'aria-label="' + (force ? 'Remettre ' : 'Acheter sur place : ') + ech(l.nom) +
+                  '" title="' + (force ? 'Remettre au drive' : 'Je ne le trouve pas : je l\'achèterai sur place') +
+                  '">' + (force ? '↩' : '🛒') + '</button>'
+                : '') +
+              '</div>'
             );
           }).join('')
         );
@@ -2341,6 +2391,7 @@
       Store.lireMeta('courses_coches', {}),
       Store.lireMeta('courses_pris', {}),
       Store.lireMeta('courses_dernier_lot', null),
+      Store.lireMeta('courses_volet_force', { pour: '', articles: {} }),
     ]).then(function (r) {
       S.notes = r[0];
       if (r[3]) S.dernierLot = r[3];
@@ -2360,6 +2411,7 @@
       S.cochesCourses = r[5] || {};
       S.prisCourses = r[6] || {};
       if (r[7]) S.dernierLotCourses = r[7];
+      if (r[8] && r[8].articles) S.voletForce = r[8];
       // Une coche locale qui vise un article disparu du référentiel est retirée : sans
       // cela, elle repartirait dans chaque lot pour être ignorée à chaque fois.
       if (S.courses) {
@@ -2746,6 +2798,17 @@
       render();
     } else if (action === 'courses-fermer-saisie') {
       S.saisieCourses = null;
+      render();
+    } else if (action === 'courses-basculer-volet') {
+      var uuidB = el.dataset.cible;
+      var ephB = S.courses && S.courses.ephemere;
+      if (!ephB) return;
+      // Une liste neuve efface les bascules de l'ancienne : elles portaient sur d'autres
+      // lignes, et les rejouer à l'aveugle n'aurait aucun sens.
+      if (S.voletForce.pour !== ephB.uuid) S.voletForce = { pour: ephB.uuid, articles: {} };
+      if (S.voletForce.articles[uuidB]) delete S.voletForce.articles[uuidB];
+      else S.voletForce.articles[uuidB] = true;
+      enregistrerVoletForce();
       render();
     } else if (action === 'courses-pris') {
       var uuidP = el.dataset.cible;
