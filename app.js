@@ -1464,6 +1464,22 @@
       '</button>' +
       '<button type="button" class="bouton bouton-doux" data-action="courses-exporter"' +
       (nbCochesCourses() === 0 ? ' disabled' : '') + '>Exporter la liste éphémère</button>' +
+      // ⚠️ **« Tout décocher » ne touche QUE ce qui a été fait ICI** (demande du
+      // 19-08-2026). Il ne peut pas en être autrement : un lot est ADDITIF (§8.2), le
+      // téléphone n'a aucun moyen de dire au PC « décoche ». Le libellé et la confirmation
+      // le disent en toutes lettres, sans quoi Julien croirait avoir vidé sa liste alors
+      // que le PC la garde entière.
+      //
+      // ⚠️ **« Faites ici » et non « posées ici »** : une entrée de `S.cochesCourses` n'est
+      // pas toujours une coche. Préciser une quantité sur un article que le PC a déjà coché
+      // en crée une, sans qu'aucune case n'ait été cochée sur le téléphone. Le compte les
+      // englobe, donc le mot doit les englober aussi.
+      '<button type="button" class="bouton bouton-doux" data-action="courses-tout-decocher"' +
+      (locales === 0 ? ' disabled' : '') + '>' +
+      (locales === 0
+        ? 'Rien à retirer ici'
+        : 'Tout décocher (' + locales + (locales === 1 ? ' faite ici)' : ' faites ici)')) +
+      '</button>' +
       (S.dernierLotCourses
         ? '<p class="indicateur dernier-lot">Dernier fichier : <span class="depot-fichier">' +
           ech(S.dernierLotCourses.nom) + '</span></p>' +
@@ -2736,6 +2752,32 @@
       if (S.prisCourses[uuidP]) delete S.prisCourses[uuidP];
       else S.prisCourses[uuidP] = true;
       enregistrerPris();
+      render();
+    } else if (action === 'courses-tout-decocher') {
+      var combien = Object.keys(S.cochesCourses).length;
+      if (combien === 0) return;
+      S.confirmation = {
+        titre: combien === 1 ? 'Retirer ma coche ?' : 'Retirer mes ' + combien + ' coches ?',
+        texte:
+          'Cela efface les coches faites ICI, sur le téléphone, avec leurs quantités, ' +
+          'commentaires et enseignes. Ce que le PC a coché de son côté RESTE coché : le ' +
+          'téléphone ne sait pas décocher à distance, seul le Cockpit le peut.' +
+          // ⚠️ Un fichier déjà fabriqué vit sa vie : il est dans les Téléchargements, ou
+          // déjà dans Drive, et le PC l'appliquera — additivement — le jour où il le lira.
+          // Le taire ferait croire à un « annuler » qui n'en est pas un.
+          (S.dernierLotCourses
+            ? ' Attention : le fichier « ' + S.dernierLotCourses.nom + ' » est déjà fabriqué. ' +
+              'Si tu le déposes dans Drive, ses coches reviendront.'
+            : ''),
+        libelle: 'Tout décocher',
+        action: function () {
+          S.cochesCourses = {};
+          S.saisieCourses = null;
+          enregistrerCoches();
+          signaler(combien + (combien === 1 ? ' coche retirée.' : ' coches retirées.'));
+          render();
+        },
+      };
       render();
     } else if (action === 'courses-envoyer') {
       preparerEnvoiCoches();
