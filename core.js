@@ -971,18 +971,25 @@
   // ============================================================================
 
   var FORMAT_COURSES = 'cockpit-courses';
-  // ⚠️ **Les courses ont leur propre version de contrat, et elle vaut 2.** Celle des notes
+  // ⚠️ **Les courses ont leur propre version de contrat, et elle vaut 3.** Celle des notes
   // reste 1 : les deux familles de fichiers évoluent séparément, et les confondre ferait
-  // refuser un lot de notes parfaitement valide. Le 2 vient de la migration 30 — la forme
-  // de `prix` a changé, et un lecteur en version 1 perdrait les prix en silence.
-  var VERSION_COURSES = 2;
+  // refuser un lot de notes parfaitement valide.
+  //
+  // Le 2 venait de la migration 30 — la forme de `prix` avait changé. Le **3** vient de la
+  // migration 31 (08-09-2026) : le champ `volet` d'un article ne se DÉDUIT plus de son
+  // enseigne, il lui appartient. Un téléphone resté en version 2 le recalculerait depuis
+  // l'enseigne et rangerait un article Biocoop passé au click & collect dans le mauvais
+  // volet, **sans rien signaler**. Un vieux téléphone doit dire « mets à jour
+  // l'application », jamais mentir en silence.
+  var VERSION_COURSES = 3;
   var FORMAT_COCHES = 'cockpit-courses-coches';
   var FORMAT_EPHEMERE = 'cockpit-courses-ephemere';
 
-  // ⚠️ **Le volet vient de la LIGNE de l'enseigne, plus d'une règle en dur.** C'était
-  // `{ super_u, picard, en_ligne }` écrit ici ET dans le Rust ; depuis la migration 30 les
-  // enseignes s'inventent, et une règle en dur n'a rien à dire de celle qu'elle ne connaît
-  // pas. Le téléphone lit donc le volet dans `courses.json`, comme le reste.
+  // ⚠️ **Le volet a DESCENDU DEUX FOIS, et il ne se calcule plus jamais ici.** C'était
+  // `{ super_u, picard, en_ligne }` écrit ici ET dans le Rust ; la migration 30 l'a posé sur
+  // la ligne de l'enseigne ; la migration 31 (08-09-2026) l'a posé sur l'ARTICLE, parce
+  // qu'une enseigne ne se fréquente pas d'une seule façon — Biocoop fait du click & collect.
+  // Le téléphone lit donc les deux dans `courses.json`, comme le reste.
   var LIBELLE_SANS_ENSEIGNE = 'Sans enseigne';
 
   function enseignePar(enseignes, id) {
@@ -991,9 +998,58 @@
     return trouvee || null;
   }
 
+  /** Le volet **par défaut** d'une enseigne : celui d'un article neuf, et celui qu'on
+   * retient quand une coche détourne un article vers un autre lieu. */
   function voletDe(enseignes, id) {
     var e = enseignePar(enseignes, id);
     return e && e.volet === 'drive_en_ligne' ? 'drive_en_ligne' : 'sur_place';
+  }
+
+  /**
+   * Le volet où cet article partira — **trois règles, et leur ORDRE est le contrat**
+   * (08-09-2026).
+   *
+   * 1. **Un lieu choisi pour cette course décide seul.** « Je vais le prendre au marché
+   *    cette fois » est la parole la plus récente sur cet achat-là ; le volet de l'article
+   *    décrit son lieu HABITUEL, qui ne s'applique plus.
+   * 2. **Une rupture constatée déporte sur place.** L'article n'est pas là où on le prend
+   *    d'habitude : il faudra aller le chercher.
+   * 3. **Sinon, le volet de l'article**, et rien d'autre.
+   *
+   * ⚠️ **Jumeau exact de `volet_de_la_ligne` (`courses/fichiers.rs`) et de `voletDeLaLigne`
+   * (`courses/api.ts`).** Les trois doivent répondre pareil : l'un promet à l'écran ce que
+   * l'autre écrit dans le fichier, et le PC relit ce que le téléphone a écrit.
+   */
+  function voletCourse(article, enseignes, coches) {
+    var locale = (coches || {})[article.uuid];
+    var choisie =
+      locale && locale.enseigne_id !== undefined && locale.enseigne_id !== null
+        ? locale.enseigne_id
+        : article.coche_enseigne_id;
+    if (choisie !== undefined && choisie !== null) return voletDe(enseignes, choisie);
+    if (String(article.indisponible_le || '').trim() !== '') return 'sur_place';
+    return article.volet === 'drive_en_ligne' ? 'drive_en_ligne' : 'sur_place';
+  }
+
+  /**
+   * Vrai quand l'article part « sur place » **à cause d'une rupture**, et non parce que
+   * c'est son volet. Un déport se lève, un volet se décide : la liste doit les distinguer.
+   */
+  function estDeporte(article, coches) {
+    var locale = (coches || {})[article.uuid];
+    var choisie =
+      locale && locale.enseigne_id !== undefined && locale.enseigne_id !== null
+        ? locale.enseigne_id
+        : article.coche_enseigne_id;
+    if (choisie !== undefined && choisie !== null) return false;
+    return String(article.indisponible_le || '').trim() !== '';
+  }
+
+  /** `2026-09-08` → `08/09/2026`. Une entrée qui n'est pas une date ressort telle quelle. */
+  function jourFrancaisCourses(iso) {
+    var jour = String(iso || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}/.test(jour)) return jour;
+    return jour.slice(8, 10) + '/' + jour.slice(5, 7) + '/' + jour.slice(0, 4);
   }
 
   function libelleEnseigne(enseignes, id) {
@@ -1199,6 +1255,7 @@
       if (source === 'repas_rapides' && !a.repas_rapide) return;
       var retenue = enseigneRetenue(a, coches);
       var detournee = retenue !== a.enseigne_id;
+      var deporte = estDeporte(a, coches);
       var ligne = {
         article_uuid: a.uuid,
         nom: a.nom,
@@ -1215,8 +1272,12 @@
         prix: (a.prix || {})[String(retenue)] || '',
         remarque: a.remarque || '',
         achat: a.achat || '',
+        // ⚠️ La marque de déport ne part QUE si le déport a bien eu lieu : un article en
+        // rupture mais coché « plutôt au marché » n'est pas déporté, Julien a déjà décidé
+        // où aller. Le champ veut dire « cette ligne est ici À CAUSE d'une rupture ».
+        indisponible_le: deporte ? String(a.indisponible_le || '').trim() : '',
       };
-      volets[voletDe(enseignes, retenue)].push(ligne);
+      volets[voletCourse(a, enseignes, coches)].push(ligne);
     });
     var parLieu = function (x, y) {
       var a = (x.enseigne_principale || '') + ' ' + (x.theme || '') + ' ' + x.nom;
@@ -1304,6 +1365,9 @@
     // Courses (18-08-2026) — 5ᵉ onglet.
     parseCourses: parseCourses,
     voletDe: voletDe,
+    voletCourse: voletCourse,
+    estDeporte: estDeporte,
+    jourFrancaisCourses: jourFrancaisCourses,
     libelleEnseigne: libelleEnseigne,
     grouperCourses: grouperCourses,
     filtrerCourses: filtrerCourses,

@@ -1417,6 +1417,13 @@
     var retenue = Core.enseigneRetenue(a, S.cochesCourses);
     var detournee = coche && retenue !== a.enseigne_id;
     var prix = (a.prix || {})[String(retenue)] || '';
+    // ⚠️ **Le volet ne se badge que quand il fait EXCEPTION** (08-09-2026) : sur 264
+    // articles, la plupart suivent leur enseigne, et les marquer tous cacherait justement
+    // celui qu'on veut voir. Même règle que sur le PC.
+    var voletEnseigne = Core.voletDe(enseignesCourses(), a.enseigne_id);
+    var voletArticle = a.volet === 'drive_en_ligne' ? 'drive_en_ligne' : 'sur_place';
+    var voletAPart = voletArticle !== voletEnseigne;
+    var rupture = String(a.indisponible_le || '').trim();
     return (
       '<div class="courses-article-tel' + (coche ? ' coche' : '') + '">' +
       // Grosse case, cible large : c'est un pouce qui coche, pas une souris.
@@ -1428,7 +1435,16 @@
       (coche ? '✓' : '') + '</button>' +
       '<div class="courses-corps-tel">' +
       '<span class="courses-nom-tel">' + ech(a.nom) +
-      (a.repas_rapide ? ' <span class="badge-genre">rapide</span>' : '') + '</span>' +
+      (a.repas_rapide ? ' <span class="badge-genre">rapide</span>' : '') +
+      (rupture
+        ? ' <span class="badge-genre badge-rupture">rupture ' +
+          ech(Core.jourFrancaisCourses(rupture)) + '</span>'
+        : '') +
+      (voletAPart
+        ? ' <span class="badge-genre badge-volet">' +
+          (voletArticle === 'drive_en_ligne' ? 'drive' : 'sur place') + '</span>'
+        : '') +
+      '</span>' +
       (a.enseigne_detail ? '<span class="courses-lieu-tel">' + ech(a.enseigne_detail) + '</span>' : '') +
       (a.remarque ? '<span class="courses-remarque-tel">' + ech(a.remarque) + '</span>' : '') +
       (prix ? '<span class="courses-prix-tel">' + ech(prix) + '</span>' : '') +
@@ -1587,7 +1603,15 @@
               (estPris ? '✓' : '') + '</span>' +
               '<span class="courses-corps-tel">' +
               '<span class="courses-nom-tel">' + ech(l.nom) +
-              (force ? ' <span class="badge-genre">passé au magasin</span>' : '') + '</span>' +
+              (force ? ' <span class="badge-genre">passé au magasin</span>' : '') +
+              // ⚠️ **Un déport n'est pas un volet.** L'article est ici parce qu'il est
+              // introuvable là où on le prend d'habitude, pas parce que c'est sa place :
+              // sans cette marque on croirait qu'il s'achète normalement au magasin.
+              (l.indisponible_le
+                ? ' <span class="badge-genre badge-rupture">rupture ' +
+                  ech(Core.jourFrancaisCourses(l.indisponible_le)) + '</span>'
+                : '') +
+              '</span>' +
               (l.quantite ? '<span class="courses-quantite-tel">' + ech(l.quantite) + '</span>' : '') +
               (l.prix ? '<span class="courses-prix-tel">' + ech(l.prix) + '</span>' : '') +
               (l.commentaire ? '<span class="courses-commentaire-tel">' + ech(l.commentaire) + '</span>' : '') +

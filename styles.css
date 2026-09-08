@@ -1649,6 +1649,28 @@ code {
   letter-spacing: 0;
 }
 
+/* ---- Le volet par article, et la rupture temporaire (migration 31, 08-09-2026) ---- */
+
+/* L'exception de volet : cet article-là ne suit pas son enseigne. Discret — c'est un état
+   normal, pas une alerte. */
+.badge-volet {
+  background: transparent;
+  border: 1px solid rgba(52, 80, 90, 0.32);
+  color: var(--ardoise, #34505a);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* La rupture, elle, est une ANOMALIE qu'on veut voir : terracotta, la couleur des colonnes
+   de Backlog. ⚠️ Pas l'écarlate de la recherche globale, qui ne veut dire qu'une chose. */
+.badge-rupture {
+  background: rgba(200, 98, 52, 0.18);
+  border: 1px solid rgba(200, 98, 52, 0.45);
+  color: #8c4321;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .courses-saisie-tel select.champ {
   font-size: 15px;
 }

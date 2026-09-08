@@ -647,6 +647,14 @@
           theme: theme || 'FRAIS',
           ordre: options.ordre || 1,
           enseigne_id: enseigneId === undefined ? null : enseigneId,
+          // Par défaut, le volet de l'article est celui de son enseigne — c'est ce que la
+          // migration 31 pose sur la base, et ce que le seed pose sur une base neuve. Les
+          // tests qui veulent une exception l'écrivent explicitement.
+          volet:
+            options.volet ||
+            (ENS.filter(function (e) { return e.id === enseigneId; })[0] || {}).volet ||
+            'sur_place',
+          indisponible_le: options.indisponible_le || '',
           enseigne_detail: options.detail || '',
           repas_rapide: !!options.rapide,
           coche: !!options.coche,
@@ -666,21 +674,24 @@
         vrai(r.erreur.indexOf('référentiel des courses') !== -1, r.erreur);
       });
 
-      test('parseCourses refuse la version 1 : la forme de prix a changé', function () {
-        // ⚠️ Le contrat des courses est passé en 2 à la migration 30. Un lecteur qui
-        // avalerait un document en version 1 perdrait les prix EN SILENCE — c'est
-        // exactement ce que le refus de version existe pour empêcher.
-        var r = Core.parseCourses(JSON.stringify({ format: 'cockpit-courses', version: 1 }));
-        vrai(!r.ok);
-        vrai(r.versionInconnue);
-        vrai(r.erreur.indexOf('version 1') !== -1, r.erreur);
+      test('parseCourses refuse une version que ce téléphone ne sait pas lire', function () {
+        // ⚠️ Le contrat est passé en 2 (migration 30, la forme de `prix`) puis en 3
+        // (migration 31, le `volet` qui appartient à l'article). Un lecteur qui avalerait un
+        // document trop récent se tromperait EN SILENCE — c'est exactement ce que le refus
+        // de version existe pour empêcher.
+        [1, 2, 4].forEach(function (v) {
+          var r = Core.parseCourses(JSON.stringify({ format: 'cockpit-courses', version: v }));
+          vrai(!r.ok, 'version ' + v);
+          vrai(r.versionInconnue);
+          vrai(r.erreur.indexOf('version ' + v) !== -1, r.erreur);
+        });
       });
 
       test('la version des courses est distincte de celle des notes', function () {
         // Les deux familles de fichiers évoluent séparément : les confondre ferait refuser
         // un lot de notes parfaitement valide.
         egal(Core.VERSION, 1);
-        egal(Core.VERSION_COURSES, 2);
+        egal(Core.VERSION_COURSES, 3);
       });
 
       test('parseCourses tolère un JSON cassé sans jeter', function () {
@@ -691,7 +702,7 @@
 
       test('parseCourses lit les trois référentiels éditables', function () {
         var r = Core.parseCourses(JSON.stringify({
-          format: 'cockpit-courses', version: 2, genere_le: '2026-08-19 21:00:00',
+          format: 'cockpit-courses', version: 3, genere_le: '2026-08-19 21:00:00',
           themes: [{ id: 1, libelle: 'FRAIS', ordre: 1 }], articles: [],
           references: { enseignes: ENS, familles: [{ id: 1, libelle: 'Alimentaire' }], achats: [] },
         }));
@@ -704,7 +715,7 @@
 
       test('un instantané sans référentiels ne fait pas tomber la lecture', function () {
         var r = Core.parseCourses(JSON.stringify({
-          format: 'cockpit-courses', version: 2, themes: [], articles: [],
+          format: 'cockpit-courses', version: 3, themes: [], articles: [],
         }));
         vrai(r.ok);
         egal(r.enseignes, []);
@@ -719,6 +730,65 @@
         // Une enseigne inconnue ne fait pas tomber : elle retombe sur « sur place ».
         egal(Core.voletDe(ENS, 999), 'sur_place');
         egal(Core.voletDe(ENS, null), 'sur_place');
+      });
+
+      test('voletCourse : trois règles, et leur ORDRE est le contrat', function () {
+        // ⚠️ Jumeau exact de `volet_de_la_ligne` (Rust) et de `voletDeLaLigne` (PC). Les
+        // trois doivent répondre pareil : le PC relit ce que le téléphone a écrit.
+        var normal = ART('epinards', 2, 'SURGELÉS');
+        egal(Core.voletCourse(normal, ENS, {}), 'drive_en_ligne', '3. le volet de l\'article');
+
+        // 3. Le volet appartient à l'article : une même enseigne porte les DEUX.
+        var clickAndCollect = ART('cafe', 3, 'ÉPICERIE', { volet: 'drive_en_ligne' });
+        egal(Core.voletCourse(clickAndCollect, ENS, {}), 'drive_en_ligne', 'Biocoop au drive');
+        var enRayon = ART('pain de mie', 1, 'ÉPICERIE', { volet: 'sur_place' });
+        egal(Core.voletCourse(enRayon, ENS, {}), 'sur_place', 'Super U en rayon');
+
+        // 2. Une rupture constatée déporte sur place, sans toucher l'article.
+        var rupture = ART('avocat', 2, 'SURGELÉS', { indisponible_le: '2026-09-08' });
+        egal(Core.voletCourse(rupture, ENS, {}), 'sur_place');
+        egal(rupture.enseigne_id, 2, 'son enseigne est INTACTE');
+        egal(rupture.volet, 'drive_en_ligne', 'son volet de référence aussi');
+        vrai(Core.estDeporte(rupture, {}));
+
+        // 1. Un lieu choisi pour cette course prime sur tout le reste.
+        egal(Core.voletCourse(rupture, ENS, { 'u-avocat': { enseigne_id: 6 } }), 'sur_place');
+        vrai(!Core.estDeporte(rupture, { 'u-avocat': { enseigne_id: 6 } }), 'le déport n\'a pas eu lieu');
+        egal(Core.voletCourse(enRayon, ENS, { 'u-pain de mie': { enseigne_id: 1 } }), 'drive_en_ligne',
+          'le lieu choisi décide, même contre le volet de l\'article');
+
+        // Un volet illisible retombe sur le défaut, jamais au hasard.
+        egal(Core.voletCourse(ART('mystere', 2, 'FRAIS', { volet: 'drive' }), ENS, {}), 'sur_place');
+      });
+
+      test('une éphémère du téléphone marque le déport, et lui seul', function () {
+        var articles = [
+          ART('avocat', 2, 'SURGELÉS', { coche: true, indisponible_le: '2026-09-08' }),
+          ART('epinards', 2, 'SURGELÉS', { coche: true }),
+        ];
+        var doc = Core.buildEphemereTelephone(articles, {}, 'complete', 'x', '2026-09-08 10:00:00', ENS);
+        egal(doc.volets.sur_place.length, 1);
+        egal(doc.volets.sur_place[0].nom, 'avocat');
+        egal(doc.volets.sur_place[0].enseigne_principale, 'Picard', 'enseigne d\'origine intacte');
+        egal(doc.volets.sur_place[0].indisponible_le, '2026-09-08');
+        egal(doc.volets.drive_en_ligne[0].nom, 'epinards');
+        egal(doc.volets.drive_en_ligne[0].indisponible_le, '', 'rien à signaler');
+
+        // Coché « plutôt au marché » : Julien a déjà décidé, la marque de déport n'a plus
+        // rien à dire — et écrire « rupture » sur une ligne du marché serait faux.
+        var choisi = Core.buildEphemereTelephone(
+          articles, { 'u-avocat': { enseigne_id: 6 } }, 'complete', 'x', '2026-09-08 10:00:00', ENS,
+        );
+        egal(choisi.volets.sur_place[0].enseigne_principale, 'Marché');
+        egal(choisi.volets.sur_place[0].indisponible_le, '');
+      });
+
+      test('jourFrancaisCourses tolère une entrée mal formée', function () {
+        egal(Core.jourFrancaisCourses('2026-09-08'), '08/09/2026');
+        egal(Core.jourFrancaisCourses('2026-09-08 21:00:00'), '08/09/2026');
+        egal(Core.jourFrancaisCourses('hier'), 'hier');
+        egal(Core.jourFrancaisCourses(''), '');
+        egal(Core.jourFrancaisCourses(undefined), '');
       });
 
       test('libelleEnseigne nomme, et dit quand il ne sait pas', function () {
@@ -787,7 +857,7 @@
           '2026-08-19 20:00:00',
         );
         egal(lot.format, 'cockpit-courses-coches');
-        egal(lot.version, 2);
+        egal(lot.version, 3);
         egal(lot.coches[0], {
           article_uuid: 'u-a', quantite: '2 briques', commentaire: 'demi-sel', enseigne_id: 6,
         });
@@ -811,7 +881,7 @@
           'complete', 'dddddddd', '2026-08-19 10:00:00', ENS,
         );
         egal(doc.format, 'cockpit-courses-ephemere');
-        egal(doc.version, 2);
+        egal(doc.version, 3);
         egal(doc.origine, 'telephone');
         egal(doc.volets.sur_place.map(function (l) { return l.nom; }), ['Pain']);
         egal(doc.volets.drive_en_ligne.map(function (l) { return l.nom; }), ['Beurre']);
@@ -869,7 +939,7 @@
         var doc = Core.buildEphemereTelephone([], {}, 'complete', 'x', '2026-08-19 10:00:00', ENS);
         var relu = JSON.parse(Core.documentJson(doc));
         egal(relu.format, 'cockpit-courses-ephemere');
-        egal(relu.version, 2);
+        egal(relu.version, 3);
       });
 
       // ---- Bilan ----
