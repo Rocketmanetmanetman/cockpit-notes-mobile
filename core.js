@@ -1082,7 +1082,10 @@
       return { ok: false, erreur: "Ce fichier n'est pas lisible (JSON invalide)." };
     }
     if (!brut || typeof brut !== 'object' || brut.format !== FORMAT_COURSES) {
-      return { ok: false, erreur: "Ce fichier n'est pas le référentiel des courses (courses.json)." };
+      return {
+        ok: false,
+        erreur: "Ce n'est pas le fichier du PC. Choisis « courses - du PC vers le telephone.json ».",
+      };
     }
     if (brut.version !== VERSION_COURSES) {
       return {
@@ -1106,6 +1109,11 @@
       achats: Array.isArray(refs.achats) ? refs.achats : [],
       // Champ additif : un instantané plus ancien n'en a pas, et l'écran le dit.
       ephemere: brut.ephemere && typeof brut.ephemere === 'object' ? brut.ephemere : null,
+      // ⚠️ L'accusé de réception (08-10-2026) : les envois que le PC a déjà lus. Absent
+      // d'un fichier plus ancien — rien n'est alors acquitté, et rien n'est perdu.
+      lots_recus: Array.isArray(brut.lots_recus)
+        ? brut.lots_recus.filter(function (u) { return typeof u === 'string'; })
+        : [],
     };
   }
 
@@ -1186,7 +1194,7 @@
 
   // ---- Ce que le téléphone FABRIQUE ----
 
-  // `coches courses AAAA-MM-JJ HHhMMmSS xxxxxx.json` — même nommeur que le lot de notes,
+  // `{prefixe} AAAA-MM-JJ HHhMMmSS xxxxxx.json` — même nommeur que le lot de notes,
   // seul le préfixe change. L'ordre alphabétique reste l'ordre chronologique.
   function nomFichierCourses(prefixe, uuidFichier, d) {
     d = d || new Date();
@@ -1198,12 +1206,15 @@
     );
   }
 
-  function cochesFilename(uuidLot, d) {
-    return nomFichierCourses('coches courses', uuidLot, d);
-  }
+  // ⚠️ **Le nom dit le sens** (demande du 08-10-2026 : « je veux que les choses soient
+  // correctement nommées »). C'était `coches courses …json` ; le PC lit encore l'ancien nom,
+  // mais plus rien ne l'écrit. Sans accents : ce nom passe par Android et par Drive.
+  var PREFIXE_ENVOI = 'courses - du telephone vers le PC -';
+  // Le fichier que le PC écrit pour le téléphone. Toujours le même nom.
+  var NOM_FICHIER_PC = 'courses - du PC vers le telephone.json';
 
-  function ephemereFilename(uuidDoc, d) {
-    return nomFichierCourses('liste ephemere', uuidDoc, d);
+  function cochesFilename(uuidLot, d) {
+    return nomFichierCourses(PREFIXE_ENVOI, uuidLot, d);
   }
 
   /**
@@ -1214,7 +1225,7 @@
    * de la carte : elle ne devient pas un ordre de décochage, parce que décocher est un
    * geste du PC.
    */
-  function buildLotCoches(coches, uuidLot, genereLe) {
+  function buildLotCoches(coches, uuidLot, genereLe, source, listeUuid) {
     // eslint-disable-next-line no-unused-vars
     var lignes = Object.keys(coches || {}).map(function (uuidArticle) {
       var c = coches[uuidArticle] || {};
@@ -1235,8 +1246,42 @@
       version: VERSION_COURSES,
       uuid: uuidLot,
       genere_le: genereLe,
+      // (08-10-2026) Ce que le PC doit FAIRE de cet envoi : la liste, depuis cette liste
+      // source, sous l'identifiant que le téléphone a donné à la sienne. Champs additifs —
+      // un ancien PC les ignore et se contente de cocher.
+      source: source === 'repas_rapides' ? 'repas_rapides' : 'complete',
+      liste_uuid: String(listeUuid || ''),
       coches: lignes,
     };
+  }
+
+  /**
+   * Les coches que le téléphone connaît en propre : celles déjà ENVOYÉES au PC (en attente
+   * de son accusé de réception) et celles faites depuis (08-10-2026). Une coche locale
+   * l'emporte sur l'envoyée du même article : c'est la parole la plus récente.
+   */
+  function fusionCochesCourses(envoyees, locales) {
+    var tout = {};
+    Object.keys(envoyees || {}).forEach(function (u) { tout[u] = envoyees[u]; });
+    Object.keys(locales || {}).forEach(function (u) { tout[u] = locales[u]; });
+    return tout;
+  }
+
+  /**
+   * ⚠️ **Le téléphone OUBLIE ce que le PC a reçu** (08-10-2026). Ses coches envoyées
+   * restaient chez lui pour toujours, et repartaient avec la course suivante. Dès que le
+   * fichier du PC dit « j'ai lu cet envoi », elles s'en vont : c'est le PC qui fait foi, et
+   * il les porte désormais lui-même.
+   */
+  function oublierEnvoyees(envoyees, lotsRecus) {
+    var recus = {};
+    (lotsRecus || []).forEach(function (u) { recus[u] = true; });
+    var reste = {};
+    Object.keys(envoyees || {}).forEach(function (u) {
+      var e = envoyees[u];
+      if (!e || !recus[e.lot]) reste[u] = e;
+    });
+    return reste;
   }
 
   /**
@@ -1373,8 +1418,10 @@
     filtrerCourses: filtrerCourses,
     replierTexte: replierTexte,
     cochesFilename: cochesFilename,
-    ephemereFilename: ephemereFilename,
+    NOM_FICHIER_PC: NOM_FICHIER_PC,
     buildLotCoches: buildLotCoches,
+    fusionCochesCourses: fusionCochesCourses,
+    oublierEnvoyees: oublierEnvoyees,
     buildEphemereTelephone: buildEphemereTelephone,
     documentJson: documentJson,
     VERSION_COURSES: VERSION_COURSES,

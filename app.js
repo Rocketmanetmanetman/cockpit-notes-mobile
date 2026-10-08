@@ -96,9 +96,21 @@
     // commentaire } qui ne contient QUE ce que Julien a coché ici. Elle ne modifie pas le
     // référentiel importé, et c'est ce qui rend l'envoi purement additif.
     cochesCourses: {},
+    // ⚠️ **Les coches DÉJÀ ENVOYÉES au PC** (08-10-2026) : même forme, plus `lot`, l'envoi
+    // qui les a portées. Elles restent cochées ici — inertes, comme celles du PC — jusqu'à
+    // ce que le fichier du PC dise qu'il les a lues ; elles s'en vont alors (`lots_recus`).
+    // Avant, elles restaient locales pour toujours et repartaient avec la course suivante.
+    cochesEnvoyees: {},
+    // ⚠️ **La liste faite SUR LE TÉLÉPHONE au moment d'envoyer** (08-10-2026 : « oui, dès
+    // l'envoi »). Elle s'affiche tout de suite, PC éteint ou pas. Un fichier du PC plus
+    // récent la remplace — c'est ce qui fait remonter les modifications faites là-bas.
+    listeTel: null,
     // Le « pris » de la liste éphémère — local aussi, et il ne part JAMAIS : la liste est
     // jetable, deux vues du même papier n'ont pas à se synchroniser.
-    prisCourses: {},
+    // ⚠️ **Rattaché à UNE liste** (08-10-2026) : { pour: '<uuid de la liste>', articles }.
+    // Il était global, et ce qu'on avait pris en septembre apparaissait déjà pris dans la
+    // liste d'octobre. Une liste neuve repart de zéro.
+    prisCourses: { pour: '', articles: {} },
     // ⚠️ **Les articles qu'on a fait passer du drive au « sur place », ICI et ICI SEULEMENT.**
     // Julien commande son drive, ne trouve pas un article, et veut l'acheter en magasin sans
     // rien renvoyer au PC : c'est une décision prise dans le rayon, pas une correction du
@@ -1129,25 +1141,39 @@
     // Accompagnement du dépôt (§5.4 : « affiche le rappel de le déposer dans le dossier
     // Drive »). Le transport est MANUEL : un message fugace ne suffit pas, ce panneau
     // reste jusqu'à ce que Julien le ferme, et il rappelle le nom exact du fichier.
+    // ⚠️ **Deux variantes, une par genre d'envoi** (08-10-2026). Le panneau des notes
+    // servait aussi aux courses : il annonçait « 37 notes envoyées », renvoyait à l'Accueil
+    // du PC, et son « Retélécharger » refabriquait… le dernier lot de NOTES. C'est une des
+    // raisons pour lesquelles Julien ne savait plus ce qu'il avait envoyé.
     if (S.depot) {
+      var courses = S.depot.genre === 'courses';
       sortie +=
         '<div class="calque">' +
         '<div class="feuille" data-stop="1">' +
         '<h3 class="feuille-titre">' +
-        S.depot.nb + (S.depot.nb === 1 ? ' note envoyée' : ' notes envoyées') +
+        (courses
+          ? 'Envoyé au PC — ' + S.depot.nb + (S.depot.nb === 1 ? ' coche' : ' coches')
+          : S.depot.nb + (S.depot.nb === 1 ? ' note envoyée' : ' notes envoyées')) +
         '</h3>' +
         '<p class="explication">Le fichier est dans tes <strong>Téléchargements</strong> :</p>' +
         '<p class="depot-fichier">' + ech(S.depot.nom) + '</p>' +
         '<ol class="depot-etapes">' +
         '<li>Ouvre l\'application <strong>Google Drive</strong>.</li>' +
-        '<li>Va dans le <strong>dossier de synchronisation du Cockpit</strong>.</li>' +
+        '<li>Va dans le dossier <strong>synchronisation cockpit</strong>.</li>' +
         '<li>Bouton <strong>+</strong>, puis <strong>Importer</strong>.</li>' +
         '<li>Choisis ce fichier dans tes <strong>Téléchargements</strong>.</li>' +
-        '<li>Sur le PC, en bas de l\'Accueil : <strong>Synchroniser</strong>, puis ' +
-        '<strong>Tout importer</strong>.</li>' +
+        (courses
+          ? '<li>Sur le PC, onglet <strong>Courses</strong> : <strong>Synchroniser</strong>. ' +
+            'Le PC fait la liste éphémère tout seul.</li>'
+          : '<li>Sur le PC, en bas de l\'Accueil : <strong>Synchroniser</strong>, puis ' +
+            '<strong>Tout importer</strong>.</li>') +
         '</ol>' +
+        (courses
+          ? '<p class="explication">Ta liste à faire est déjà là, dans <strong>Liste à faire</strong>.</p>'
+          : '') +
         '<button type="button" class="bouton bouton-fort" data-action="depot-fait">C\'est déposé</button>' +
-        '<button type="button" class="bouton bouton-doux" data-action="retelecharger">Retélécharger le fichier</button>' +
+        '<button type="button" class="bouton bouton-doux" data-action="' +
+        (courses ? 'courses-retelecharger' : 'retelecharger') + '">Retélécharger le fichier</button>' +
         '</div></div>';
     }
 
@@ -1234,14 +1260,66 @@
     return S.courses ? S.courses.enseignes || [] : [];
   }
 
-  // Une coche locale, ou `null`. La carte ne contient QUE ce que le téléphone a coché.
+  // Une coche locale, ou `null`. La carte ne contient QUE ce que le téléphone a coché
+  // depuis son dernier envoi.
   function cocheLocale(uuid) {
     return S.cochesCourses[uuid] || null;
   }
 
-  // Coché à l'écran = coché sur le PC à l'import OU coché ici. L'union, jamais l'un seul.
+  // Une coche déjà partie vers le PC, en attente de son accusé de réception, ou `null`.
+  function cocheEnvoyee(uuid) {
+    return S.cochesEnvoyees[uuid] || null;
+  }
+
+  // Ce que le téléphone sait d'une coche à lui — la locale d'abord, l'envoyée sinon.
+  function cocheVue(uuid) {
+    return cocheLocale(uuid) || cocheEnvoyee(uuid);
+  }
+
+  // La coche locale d'un article qu'on PRÉCISE, créée au besoin. Une coche déjà envoyée se
+  // recopie d'abord — quantité, commentaire, enseigne —, pour qu'une précision ajoutée
+  // n'efface pas celles qui étaient parties : c'est elle qui repartira, entière.
+  function ouvrirCocheLocale(uuid) {
+    if (S.cochesCourses[uuid]) return S.cochesCourses[uuid];
+    var envoyee = cocheEnvoyee(uuid);
+    var locale = { quantite: '', commentaire: '' };
+    if (envoyee) {
+      Object.keys(envoyee).forEach(function (k) { if (k !== 'lot') locale[k] = envoyee[k]; });
+    }
+    S.cochesCourses[uuid] = locale;
+    return locale;
+  }
+
+  // Les coches du téléphone en une carte, pour les fonctions de `Core` qui en attendent une.
+  function cochesConnues() {
+    return Core.fusionCochesCourses(S.cochesEnvoyees, S.cochesCourses);
+  }
+
+  // Coché à l'écran = coché sur le PC à l'import, envoyé d'ici, OU coché ici. L'union.
   function estCoche(article) {
-    return !!article.coche || !!cocheLocale(article.uuid);
+    return !!article.coche || !!cocheVue(article.uuid);
+  }
+
+  /**
+   * La liste à faire : celle du téléphone si elle est la plus récente, celle du PC sinon.
+   * ⚠️ Le choix se fait À L'IMPORT (`chargerFichierCourses`) : un fichier du PC plus
+   * récent que la liste du téléphone l'efface. Ici, il n'y a donc qu'à lire.
+   */
+  function listeAFaire() {
+    return S.listeTel || (S.courses ? S.courses.ephemere : null) || null;
+  }
+
+  // Les « pris » de CETTE liste, et d'aucune autre.
+  function prisDe(uuidListe) {
+    return S.prisCourses.pour === uuidListe ? S.prisCourses.articles : {};
+  }
+
+  function enregistrerEnvoyees() {
+    return Store.ecrireMeta('courses_envoyees', S.cochesEnvoyees).catch(function () {});
+  }
+
+  function enregistrerListeTel() {
+    return Store.ecrireMeta('courses_liste_tel', S.listeTel).catch(function () {});
   }
 
   function nbCochesCourses() {
@@ -1282,8 +1360,9 @@
       return (
         '<section class="bloc">' +
         '<h2 class="titre-bloc">Courses</h2>' +
-        '<p class="explication">Le référentiel des courses n\'est pas encore là. Charge ' +
-        '<strong>courses.json</strong> depuis le dossier Google Drive du Cockpit.</p>' +
+        '<p class="explication">Le référentiel des courses n\'est pas encore là. Reçois-le du ' +
+        'PC : <strong>' + ech(Core.NOM_FICHIER_PC) + '</strong>, dans le dossier ' +
+        '« synchronisation cockpit » de Google Drive.</p>' +
         boutonImportCourses() +
         '</section>'
       );
@@ -1297,7 +1376,7 @@
   function boutonImportCourses() {
     return (
       '<button type="button" class="bouton bouton-fort" data-action="courses-importer">' +
-      'Charger courses.json</button>'
+      'Recevoir du PC</button>'
     );
   }
 
@@ -1408,13 +1487,16 @@
   function ligneArticleTel(a) {
     var coche = estCoche(a);
     var locale = cocheLocale(a.uuid);
-    var quantite = (locale && locale.quantite) || a.quantite || '';
-    var commentaire = (locale && locale.commentaire) || a.commentaire || '';
+    var vue = cocheVue(a.uuid);
+    var quantite = (vue && vue.quantite) || a.quantite || '';
+    var commentaire = (vue && vue.commentaire) || a.commentaire || '';
     var enSaisie = S.saisieCourses === a.uuid;
-    // Cochée sur le PC et pas ici : le téléphone ne peut ni la décocher ni l'enrichir par
-    // la case. Elle est donc **inerte**, plutôt que d'accepter un appui sans effet.
+    // Cochée sur le PC — ou DÉJÀ ENVOYÉE au PC (08-10-2026) — et pas ici depuis : le
+    // téléphone ne peut ni la décocher ni l'enrichir par la case. Elle est donc **inerte**,
+    // plutôt que d'accepter un appui sans effet. « Préciser » reste ouvert.
     var parLePc = coche && !locale;
-    var retenue = Core.enseigneRetenue(a, S.cochesCourses);
+    var envoyee = !locale && !!cocheEnvoyee(a.uuid);
+    var retenue = Core.enseigneRetenue(a, cochesConnues());
     var detournee = coche && retenue !== a.enseigne_id;
     var prix = (a.prix || {})[String(retenue)] || '';
     // ⚠️ **Le volet ne se badge que quand il fait EXCEPTION** (08-09-2026) : sur 264
@@ -1431,7 +1513,8 @@
       (parLePc ? ' cochee-pc' : '') + '" ' +
       (parLePc ? 'disabled ' : '') +
       'data-action="courses-cocher" data-cible="' + ech(a.uuid) + '" ' +
-      'aria-label="' + (parLePc ? 'Déjà cochée sur le PC : ' : 'Cocher ') + ech(a.nom) + '">' +
+      'aria-label="' + (envoyee ? 'Déjà envoyée au PC : ' : parLePc ? 'Déjà cochée sur le PC : ' : 'Cocher ') +
+      ech(a.nom) + '">' +
       (coche ? '✓' : '') + '</button>' +
       '<div class="courses-corps-tel">' +
       '<span class="courses-nom-tel">' + ech(a.nom) +
@@ -1468,7 +1551,7 @@
           enseignesCourses()
             .filter(function (e) { return e.achetable && e.id !== a.enseigne_id; })
             .map(function (e) {
-              var choisi = locale && locale.enseigne_id === e.id;
+              var choisi = vue && vue.enseigne_id === e.id;
               return '<option value="' + e.id + '"' + (choisi ? ' selected' : '') + '>plutôt ' +
                 ech(e.libelle) + '</option>';
             })
@@ -1493,18 +1576,27 @@
 
   function blocEnvoiCoches() {
     var locales = Object.keys(S.cochesCourses).length;
+    // « Faites ici » englobe les coches déjà envoyées : elles aussi viennent du téléphone,
+    // et « Tout décocher » les retire aussi.
+    var faitesIci = Object.keys(cochesConnues()).length;
     return (
       '<section class="bloc bloc-envoi">' +
-      '<h2 class="titre-bloc">Envoyer mes coches</h2>' +
-      '<p class="explication">Le fichier se télécharge sur le téléphone : dépose-le ensuite ' +
-      'dans le dossier Google Drive du Cockpit. <strong>Un envoi ne décoche jamais rien</strong> ' +
-      'sur le PC — il ajoute.</p>' +
+      // ⚠️ **UN seul bouton d'envoi** (08-10-2026). Il y en avait deux — « Envoyer mes
+      // coches » et « Exporter la liste éphémère » —, qui fabriquaient deux fichiers
+      // différents, et Julien ne savait plus ce qu'il avait envoyé. Celui-ci fait les deux
+      // choses qu'il attend : la liste s'affiche ICI tout de suite, et le PC la refera de
+      // son côté en recevant le fichier.
+      '<h2 class="titre-bloc">Envoyer au PC</h2>' +
+      '<p class="explication">Ta liste s\'affiche tout de suite dans <strong>Liste à faire</strong>. ' +
+      'Le fichier se télécharge : dépose-le dans le dossier <strong>synchronisation cockpit</strong> ' +
+      'de Google Drive, puis sur le PC, onglet Courses : <strong>Synchroniser</strong>. ' +
+      'Un envoi ne décoche jamais rien sur le PC — il ajoute.</p>' +
       '<button type="button" class="bouton bouton-fort" data-action="courses-envoyer"' +
       (locales === 0 ? ' disabled' : '') + '>' +
-      (locales === 0 ? 'Rien de neuf à envoyer' : 'Envoyer ' + locales + (locales === 1 ? ' coche' : ' coches')) +
+      (locales === 0
+        ? 'Rien de neuf à envoyer'
+        : 'Envoyer au PC (' + locales + (locales === 1 ? ' coche)' : ' coches)')) +
       '</button>' +
-      '<button type="button" class="bouton bouton-doux" data-action="courses-exporter"' +
-      (nbCochesCourses() === 0 ? ' disabled' : '') + '>Exporter la liste éphémère</button>' +
       // ⚠️ **« Tout décocher » ne touche QUE ce qui a été fait ICI** (demande du
       // 19-08-2026). Il ne peut pas en être autrement : un lot est ADDITIF (§8.2), le
       // téléphone n'a aucun moyen de dire au PC « décoche ». Le libellé et la confirmation
@@ -1516,10 +1608,10 @@
       // en crée une, sans qu'aucune case n'ait été cochée sur le téléphone. Le compte les
       // englobe, donc le mot doit les englober aussi.
       '<button type="button" class="bouton bouton-doux" data-action="courses-tout-decocher"' +
-      (locales === 0 ? ' disabled' : '') + '>' +
-      (locales === 0
+      (faitesIci === 0 ? ' disabled' : '') + '>' +
+      (faitesIci === 0
         ? 'Rien à retirer ici'
-        : 'Tout décocher (' + locales + (locales === 1 ? ' faite ici)' : ' faites ici)')) +
+        : 'Tout décocher (' + faitesIci + (faitesIci === 1 ? ' faite ici)' : ' faites ici)')) +
       '</button>' +
       (S.dernierLotCourses
         ? '<p class="indicateur dernier-lot">Dernier fichier : <span class="depot-fichier">' +
@@ -1529,8 +1621,12 @@
         : '') +
       '</section>' +
       '<section class="bloc">' +
-      '<h2 class="titre-bloc">Fichier reçu du PC</h2>' +
-      '<p class="indicateur">Courses : à jour du ' + ech(Core.horodatageFr(S.courses.genere_le)) + '</p>' +
+      '<h2 class="titre-bloc">Recevoir du PC</h2>' +
+      '<p class="explication">Seulement si tu as changé quelque chose sur le PC. Choisis ' +
+      '<strong>' + ech(Core.NOM_FICHIER_PC) + '</strong> dans le dossier synchronisation cockpit : ' +
+      'c\'est le seul, il est toujours à jour.</p>' +
+      '<p class="indicateur">Dernier fichier reçu : écrit par le PC le ' +
+      ech(Core.horodatageFr(S.courses.genere_le)) + '</p>' +
       boutonImportCourses() +
       '</section>'
     );
@@ -1539,23 +1635,28 @@
   // ---- Sous-vue 2 : la liste éphémère, celle qu'on tient en magasin ----
 
   function vueEphemereTelephone() {
-    var eph = S.courses.ephemere;
+    var eph = listeAFaire();
     if (!eph) {
       return (
-        '<p class="vide">Aucune liste à faire. Elle arrive avec <strong>courses.json</strong> ' +
-        'quand le PC en a exporté une.</p>'
+        '<p class="vide">Aucune liste à faire. Coche dans le Référentiel, puis ' +
+        '<strong>Envoyer au PC</strong> : elle s\'affiche ici aussitôt.</p>'
       );
     }
     var volets = voletsAvecBascules(eph);
     var lignes = volets.sur_place.concat(volets.drive_en_ligne);
-    var pris = lignes.filter(function (l) { return S.prisCourses[l.article_uuid]; }).length;
+    var prisIci = prisDe(eph.uuid);
+    var pris = lignes.filter(function (l) { return prisIci[l.article_uuid]; }).length;
     var bascules = Object.keys(
       S.voletForce.pour === eph.uuid ? S.voletForce.articles : {},
     ).length;
+    // D'où vient la liste qu'on a sous les yeux : c'est la question que Julien se posait.
+    var faiteIci = eph === S.listeTel;
 
     return (
       '<section class="bloc">' +
-      '<p class="indicateur">Liste du ' + ech(Core.horodatageFr(eph.genere_le)) +
+      '<p class="indicateur">' +
+      (faiteIci ? 'Faite sur ce téléphone le ' : 'Reçue du PC — faite le ') +
+      ech(Core.horodatageFr(eph.genere_le)) +
       ' · <strong>' + pris + ' / ' + lignes.length + ' pris</strong></p>' +
       (bascules > 0
         ? '<p class="explication">' + bascules +
@@ -1573,7 +1674,8 @@
   function voletTelephone(titre, lignes, uuidEphemere) {
     lignes = lignes || [];
     if (lignes.length === 0) return '';
-    var pris = lignes.filter(function (l) { return S.prisCourses[l.article_uuid]; }).length;
+    var prisIci = prisDe(uuidEphemere);
+    var pris = lignes.filter(function (l) { return prisIci[l.article_uuid]; }).length;
     var groupes = [];
     lignes.forEach(function (l) {
       var lieu = l.enseigne_detail || l.enseigne_principale || '';
@@ -1589,7 +1691,7 @@
         return (
           '<p class="courses-lieu-tel courses-lieu-titre">' + ech(g.lieu) + '</p>' +
           g.lignes.map(function (l) {
-            var estPris = !!S.prisCourses[l.article_uuid];
+            var estPris = !!prisIci[l.article_uuid];
             var force =
               S.voletForce.pour === uuidEphemere && !!S.voletForce.articles[l.article_uuid];
             // ⚠️ Le bouton de bascule est un FRÈRE de la ligne, jamais un enfant : un
@@ -1645,11 +1747,29 @@
       }
       var actuel = S.courses ? S.courses.genere_le : null;
       var appliquer = function () {
+        // ⚠️ **Deux conséquences du fichier du PC, écrites AVANT le rechargement**
+        // (08-10-2026) — `charger` relit tout depuis le stockage :
+        //  1. ses coches envoyées que le PC dit avoir lues s'en vont : il les porte
+        //     désormais lui-même, et c'est lui qui fait foi ;
+        //  2. un fichier PLUS RÉCENT que la liste faite ici la remplace par la sienne —
+        //     c'est par là que remontent les modifications faites sur le PC. Un fichier
+        //     plus ancien (copie en cache de Drive) ne l'écrase jamais.
+        var envoyees = Core.oublierEnvoyees(S.cochesEnvoyees, resultat.lots_recus);
+        var arrivees = Object.keys(S.cochesEnvoyees).length - Object.keys(envoyees).length;
+        var listeRemplacee = !!S.listeTel && resultat.genere_le >= S.listeTel.genere_le;
         Store.enregistrerReferentiel('courses', texte)
+          .then(function () { return Store.ecrireMeta('courses_envoyees', envoyees); })
+          .then(function () {
+            return listeRemplacee ? Store.ecrireMeta('courses_liste_tel', null) : null;
+          })
           .then(charger)
           .then(function () {
-            signalerSucces('Courses mises à jour — instantané du ' +
-              Core.horodatageFr(resultat.genere_le) + '.');
+            signalerSucces('Reçu du PC — fichier écrit le ' +
+              Core.horodatageFr(resultat.genere_le) + '.' +
+              (arrivees > 0
+                ? ' ' + arrivees + (arrivees === 1 ? ' coche envoyée est bien arrivée.' : ' coches envoyées sont bien arrivées.')
+                : '') +
+              (listeRemplacee ? ' Liste à faire : celle du PC.' : ''));
           })
           .catch(function (e) { signalerErreur(String(e.message || e)); });
       };
@@ -1692,27 +1812,44 @@
     }
     var maintenant = new Date();
     var lotUuid = Core.uuid();
+    // ⚠️ **La liste se compose ICI, au moment d'envoyer** (08-10-2026 : « oui, dès
+    // l'envoi »), à partir de tout ce que le téléphone voit coché — le PC à l'import, les
+    // envois précédents, et ce qui part maintenant. Son identifiant voyage dans l'envoi :
+    // le PC fera la sienne sous le même nom, et le téléphone la reconnaîtra au retour.
+    var listeUuid = Core.uuid();
+    var quand = Core.horodatage(maintenant);
+    var liste = Core.buildEphemereTelephone(
+      S.courses.articles, cochesConnues(), S.sourceCourses, listeUuid, quand, enseignesCourses(),
+    );
+    var lignes = liste.volets.sur_place.length + liste.volets.drive_en_ligne.length;
     S.lotCoursesPret = {
       nom: Core.cochesFilename(lotUuid, maintenant),
-      json: Core.documentJson(Core.buildLotCoches(S.cochesCourses, lotUuid, Core.horodatage(maintenant))),
+      json: Core.documentJson(
+        Core.buildLotCoches(S.cochesCourses, lotUuid, quand, S.sourceCourses, listeUuid),
+      ),
       nb: locales,
+      lot: lotUuid,
+      liste: liste,
+      lignes: lignes,
     };
     S.confirmation = {
-      titre: 'Envoyer mes coches ?',
+      titre: 'Envoyer au PC ?',
       texte:
-        locales + (locales === 1 ? ' coche va être mise' : ' coches vont être mises') +
-        ' dans un fichier à déposer dans le dossier Google Drive. Le PC les AJOUTERA à ce ' +
-        "qu'il a déjà — il ne décochera rien.",
+        locales + (locales === 1 ? ' coche part' : ' coches partent') + ' vers le PC, ' +
+        'dans un fichier à déposer dans Google Drive. Ta liste à faire (' + lignes +
+        (lignes === 1 ? ' article' : ' articles') + ') s\'affiche tout de suite ici. ' +
+        "Le PC AJOUTERA ces coches à ce qu'il a déjà — il ne décochera rien.",
       libelle: 'Envoyer',
       action: envoyerCochesMaintenant,
     };
     render();
   }
 
-  // ⚠️ **Les coches locales ne sont PAS vidées après l'envoi.** Le PC ne décoche jamais sur
-  // ordre du téléphone : tant que Julien n'a pas rechargé un `courses.json` frais où ses
-  // coches sont arrivées, elles doivent rester visibles ici. Un lot re-déposé ne se rejoue
-  // pas (le PC le reconnaît à son uuid), donc renvoyer ne coûte rien.
+  // ⚠️ **Les coches envoyées ne disparaissent PAS de l'écran** : elles passent de « faites
+  // ici » à « envoyées », restent cochées — inertes, comme celles du PC — et ne repartent
+  // PLUS dans les envois suivants (08-10-2026). Elles s'en vont quand le fichier du PC dit
+  // les avoir lues. Avant, elles restaient locales pour toujours et repartaient avec la
+  // course suivante.
   function envoyerCochesMaintenant() {
     var pret = S.lotCoursesPret;
     S.lotCoursesPret = null;
@@ -1721,33 +1858,26 @@
       signalerErreur("Le téléchargement n'a pas démarré. Réessaie — rien n'est figé.");
       return;
     }
+    Object.keys(S.cochesCourses).forEach(function (u) {
+      var envoyee = {};
+      var c = S.cochesCourses[u] || {};
+      Object.keys(c).forEach(function (k) { envoyee[k] = c[k]; });
+      envoyee.lot = pret.lot;
+      S.cochesEnvoyees[u] = envoyee;
+    });
+    S.cochesCourses = {};
+    S.saisieCourses = null;
+    S.listeTel = pret.liste;
+    // Une liste neuve : ses « pris » partent de zéro, et ceux d'avant ne la touchent pas.
+    S.prisCourses = { pour: pret.liste.uuid, articles: {} };
+    enregistrerCoches();
+    enregistrerEnvoyees();
+    enregistrerListeTel();
+    enregistrerPris();
     S.dernierLotCourses = { nom: pret.nom, json: pret.json, nb: pret.nb };
     Store.ecrireMeta('courses_dernier_lot', S.dernierLotCourses).catch(function () {});
-    S.depot = { nom: pret.nom, nb: pret.nb };
-    render();
-  }
-
-  function exporterEphemereTelephone() {
-    var articles = S.courses ? S.courses.articles : [];
-    var maintenant = new Date();
-    var docUuid = Core.uuid();
-    var doc = Core.buildEphemereTelephone(
-      articles, S.cochesCourses, S.sourceCourses, docUuid, Core.horodatage(maintenant),
-      enseignesCourses(),
-    );
-    var total = doc.volets.sur_place.length + doc.volets.drive_en_ligne.length;
-    if (total === 0) {
-      signaler('Aucun article coché : il n\'y a rien à exporter.');
-      return;
-    }
-    var nom = Core.ephemereFilename(docUuid, maintenant);
-    if (!telecharger(nom, Core.documentJson(doc))) {
-      signalerErreur("Le téléchargement n'a pas démarré. Réessaie.");
-      return;
-    }
-    S.dernierLotCourses = { nom: nom, json: Core.documentJson(doc), nb: total };
-    Store.ecrireMeta('courses_dernier_lot', S.dernierLotCourses).catch(function () {});
-    S.depot = { nom: nom, nb: total };
+    S.depot = { genre: 'courses', nom: pret.nom, nb: pret.nb };
+    S.vueCourses = 'ephemere';
     render();
   }
 
@@ -2416,6 +2546,8 @@
       Store.lireMeta('courses_pris', {}),
       Store.lireMeta('courses_dernier_lot', null),
       Store.lireMeta('courses_volet_force', { pour: '', articles: {} }),
+      Store.lireMeta('courses_envoyees', {}),
+      Store.lireMeta('courses_liste_tel', null),
     ]).then(function (r) {
       S.notes = r[0];
       if (r[3]) S.dernierLot = r[3];
@@ -2433,9 +2565,13 @@
       var courses = r[4] ? Core.parseCourses(r[4]) : null;
       if (courses && courses.ok) S.courses = courses;
       S.cochesCourses = r[5] || {};
-      S.prisCourses = r[6] || {};
+      // L'ancienne forme (une carte à plat, sans liste) est abandonnée : c'est précisément
+      // elle qui gardait les « pris » d'une course à l'autre.
+      S.prisCourses = r[6] && r[6].articles ? r[6] : { pour: '', articles: {} };
       if (r[7]) S.dernierLotCourses = r[7];
       if (r[8] && r[8].articles) S.voletForce = r[8];
+      S.cochesEnvoyees = r[9] || {};
+      S.listeTel = r[10] && r[10].volets ? r[10] : null;
       // Une coche locale qui vise un article disparu du référentiel est retirée : sans
       // cela, elle repartirait dans chaque lot pour être ignorée à chaque fois.
       if (S.courses) {
@@ -2450,6 +2586,16 @@
         if (perdue) {
           S.cochesCourses = nettoyee;
           Store.ecrireMeta('courses_coches', nettoyee).catch(function () {});
+        }
+        var envoyeesConnues = {};
+        var envoyeePerdue = false;
+        Object.keys(S.cochesEnvoyees).forEach(function (u) {
+          if (connus[u]) envoyeesConnues[u] = S.cochesEnvoyees[u];
+          else envoyeePerdue = true;
+        });
+        if (envoyeePerdue) {
+          S.cochesEnvoyees = envoyeesConnues;
+          Store.ecrireMeta('courses_envoyees', envoyeesConnues).catch(function () {});
         }
       }
       // Une cible qui a disparu du référentiel repasse « Sans projet » : le téléphone ne
@@ -2807,10 +2953,10 @@
         // cochée, elle reste cochée là-bas. Décocher est un geste du PC (§8.2).
         delete S.cochesCourses[uuidA];
         S.saisieCourses = null;
-      } else if (articleC.coche) {
-        // Déjà cochée par le PC, et pas ici : il n'y a rien à cocher ni à décocher. La case
-        // est d'ailleurs inerte à l'écran — un appui n'a aucune raison de faire quoi que ce
-        // soit, et surtout pas d'ouvrir un formulaire.
+      } else if (articleC.coche || cocheEnvoyee(uuidA)) {
+        // Déjà cochée par le PC — ou déjà envoyée au PC —, et pas ici depuis : il n'y a
+        // rien à cocher ni à décocher. La case est d'ailleurs inerte à l'écran — un appui
+        // n'a aucune raison de faire quoi que ce soit, et surtout pas d'ouvrir un formulaire.
         return;
       } else {
         S.cochesCourses[uuidA] = { quantite: '', commentaire: '' };
@@ -2825,7 +2971,7 @@
       render();
     } else if (action === 'courses-basculer-volet') {
       var uuidB = el.dataset.cible;
-      var ephB = S.courses && S.courses.ephemere;
+      var ephB = listeAFaire();
       if (!ephB) return;
       // Une liste neuve efface les bascules de l'ancienne : elles portaient sur d'autres
       // lignes, et les rejouer à l'aveugle n'aurait aucun sens.
@@ -2836,19 +2982,25 @@
       render();
     } else if (action === 'courses-pris') {
       var uuidP = el.dataset.cible;
-      if (S.prisCourses[uuidP]) delete S.prisCourses[uuidP];
-      else S.prisCourses[uuidP] = true;
+      var listeP = listeAFaire();
+      if (!listeP) return;
+      // Les « pris » appartiennent à UNE liste : une autre repart de zéro.
+      if (S.prisCourses.pour !== listeP.uuid) S.prisCourses = { pour: listeP.uuid, articles: {} };
+      if (S.prisCourses.articles[uuidP]) delete S.prisCourses.articles[uuidP];
+      else S.prisCourses.articles[uuidP] = true;
       enregistrerPris();
       render();
     } else if (action === 'courses-tout-decocher') {
-      var combien = Object.keys(S.cochesCourses).length;
+      // Les coches faites ici ET celles déjà envoyées : toutes viennent du téléphone.
+      var combien = Object.keys(cochesConnues()).length;
       if (combien === 0) return;
       S.confirmation = {
         titre: combien === 1 ? 'Retirer ma coche ?' : 'Retirer mes ' + combien + ' coches ?',
         texte:
-          'Cela efface les coches faites ICI, sur le téléphone, avec leurs quantités, ' +
-          'commentaires et enseignes. Ce que le PC a coché de son côté RESTE coché : le ' +
-          'téléphone ne sait pas décocher à distance, seul le Cockpit le peut.' +
+          'Cela efface les coches faites ICI, sur le téléphone — envoyées ou non —, avec ' +
+          'leurs quantités, commentaires et enseignes. Ce que le PC a reçu ou coché de son ' +
+          'côté RESTE coché : le téléphone ne sait pas décocher à distance, seul le Cockpit ' +
+          'le peut. La liste à faire, elle, ne bouge pas.' +
           // ⚠️ Un fichier déjà fabriqué vit sa vie : il est dans les Téléchargements, ou
           // déjà dans Drive, et le PC l'appliquera — additivement — le jour où il le lira.
           // Le taire ferait croire à un « annuler » qui n'en est pas un.
@@ -2859,8 +3011,10 @@
         libelle: 'Tout décocher',
         action: function () {
           S.cochesCourses = {};
+          S.cochesEnvoyees = {};
           S.saisieCourses = null;
           enregistrerCoches();
+          enregistrerEnvoyees();
           signaler(combien + (combien === 1 ? ' coche retirée.' : ' coches retirées.'));
           render();
         },
@@ -2868,8 +3022,6 @@
       render();
     } else if (action === 'courses-envoyer') {
       preparerEnvoiCoches();
-    } else if (action === 'courses-exporter') {
-      exporterEphemereTelephone();
     } else if (action === 'courses-enseigne') {
       // (traité par l'écouteur `change` : une liste déroulante n'est pas un clic)
       return;
@@ -2878,7 +3030,7 @@
     } else if (action === 'courses-retelecharger') {
       if (S.dernierLotCourses) {
         if (telecharger(S.dernierLotCourses.nom, S.dernierLotCourses.json)) {
-          S.depot = { nom: S.dernierLotCourses.nom, nb: S.dernierLotCourses.nb };
+          S.depot = { genre: 'courses', nom: S.dernierLotCourses.nom, nb: S.dernierLotCourses.nb };
           render();
         } else {
           signalerErreur("Le téléchargement n'a pas démarré.");
@@ -2967,7 +3119,7 @@
         // ne modifie jamais l'article de l'instantané : le PC gardera son enseigne par
         // défaut, exactement comme la demande le veut.
         var uuidE = champ.dataset.cible;
-        if (!S.cochesCourses[uuidE]) S.cochesCourses[uuidE] = { quantite: '', commentaire: '' };
+        ouvrirCocheLocale(uuidE);
         S.cochesCourses[uuidE].enseigne_id = champ.value === '' ? null : Number(champ.value);
         enregistrerCoches();
         render();
@@ -3021,7 +3173,7 @@
       }
       if (actionChamp === 'courses-quantite' || actionChamp === 'courses-commentaire') {
         var uuidS = champ.dataset.cible;
-        if (!S.cochesCourses[uuidS]) S.cochesCourses[uuidS] = { quantite: '', commentaire: '' };
+        ouvrirCocheLocale(uuidS);
         S.cochesCourses[uuidS][actionChamp === 'courses-quantite' ? 'quantite' : 'commentaire'] =
           champ.value;
         enregistrerCoches();

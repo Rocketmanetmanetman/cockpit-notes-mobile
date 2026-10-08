@@ -668,10 +668,11 @@
         };
       };
 
-      test('parseCourses refuse un fichier qui n\'est pas courses.json', function () {
+      test('parseCourses refuse un fichier qui n\'est pas celui du PC — et le nomme', function () {
         var r = Core.parseCourses(JSON.stringify({ format: 'cockpit-backlogs', version: 2 }));
         vrai(!r.ok);
-        vrai(r.erreur.indexOf('référentiel des courses') !== -1, r.erreur);
+        // Le message dit QUEL fichier choisir : c'est la question que Julien se posait.
+        vrai(r.erreur.indexOf('courses - du PC vers le telephone.json') !== -1, r.erreur);
       });
 
       test('parseCourses refuse une version que ce téléphone ne sait pas lire', function () {
@@ -836,15 +837,16 @@
         egal(Core.filtrerCourses(liste, { source: 'complete' }).length, 2);
       });
 
-      test('le nom du lot de coches est celui du Rust, à la lettre', function () {
+      test('le nom de l\'envoi au PC est celui du Rust, à la lettre (08-10-2026)', function () {
+        // Même témoin que `le_prefixe_exige_son_espace` côté Rust : même seconde, même
+        // uuid, même nom. Le sens est dans le nom, sans accent.
         egal(
-          Core.cochesFilename('cf7fb494-b355-40e2-a37b-05ae712d5dd7', new Date(2026, 7, 15, 17, 13, 15)),
-          'coches courses 2026-08-15 17h13m15 cf7fb4.json',
+          Core.cochesFilename('58b378e9-7192-4d4b-b302-a7e4beca9323', new Date(2026, 9, 8, 16, 14, 2)),
+          'courses - du telephone vers le PC - 2026-10-08 16h14m02 58b378.json',
         );
-        egal(
-          Core.ephemereFilename('ab', new Date(2026, 7, 18, 9, 5, 0)),
-          'liste ephemere 2026-08-18 09h05m00 ab0000.json',
-        );
+        egal(Core.NOM_FICHIER_PC, 'courses - du PC vers le telephone.json');
+        // Il n'y a plus d'export de liste depuis le téléphone : un seul fichier part.
+        egal(typeof Core.ephemereFilename, 'undefined');
       });
 
       test('un lot de coches porte l\'enseigne choisie, et seulement si elle l\'est', function () {
@@ -868,6 +870,43 @@
       test('un lot VIDE reste un document valide (il ne décoche rien)', function () {
         var lot = Core.buildLotCoches({}, 'x', '2026-08-19 20:00:00');
         egal(lot.coches, []);
+      });
+
+      test('l\'envoi dit au PC quelle liste faire, et sous quel nom (08-10-2026)', function () {
+        var lot = Core.buildLotCoches({}, 'x', '2026-10-08 16:14:02', 'repas_rapides', 'abcdef12-3456');
+        egal(lot.source, 'repas_rapides');
+        egal(lot.liste_uuid, 'abcdef12-3456');
+        // Une source inconnue retombe sur la liste complète, jamais sur du vide.
+        egal(Core.buildLotCoches({}, 'x', 'q', 'n_importe', 'u').source, 'complete');
+        egal(Core.buildLotCoches({}, 'x', 'q').liste_uuid, '');
+      });
+
+      test('les coches du téléphone : la locale l\'emporte sur l\'envoyée', function () {
+        var tout = Core.fusionCochesCourses(
+          { 'u-a': { quantite: '1', commentaire: '', lot: 'L1' }, 'u-b': { quantite: '', commentaire: '', lot: 'L1' } },
+          { 'u-a': { quantite: '2', commentaire: '' }, 'u-c': { quantite: '', commentaire: '' } },
+        );
+        egal(Object.keys(tout).sort(), ['u-a', 'u-b', 'u-c']);
+        egal(tout['u-a'].quantite, '2');
+      });
+
+      test('le téléphone oublie les coches que le PC a reçues, et elles seules', function () {
+        var envoyees = {
+          'u-a': { quantite: '', commentaire: '', lot: 'L1' },
+          'u-b': { quantite: '', commentaire: '', lot: 'L2' },
+        };
+        egal(Object.keys(Core.oublierEnvoyees(envoyees, ['L1'])), ['u-b']);
+        egal(Object.keys(Core.oublierEnvoyees(envoyees, [])).sort(), ['u-a', 'u-b']);
+        egal(Core.oublierEnvoyees(envoyees, ['L1', 'L2']), {});
+        // Un fichier du PC trop ancien pour porter l'accusé : rien n'est perdu.
+        egal(Object.keys(Core.oublierEnvoyees(envoyees, undefined)).sort(), ['u-a', 'u-b']);
+      });
+
+      test('le fichier du PC porte l\'accusé de réception, tolérant s\'il manque', function () {
+        var base = { format: 'cockpit-courses', version: 3, genere_le: '2026-10-08 16:20:00' };
+        egal(Core.parseCourses(JSON.stringify(base)).lots_recus, []);
+        base.lots_recus = ['L1', 42, 'L2'];
+        egal(Core.parseCourses(JSON.stringify(base)).lots_recus, ['L1', 'L2']);
       });
 
       test('l\'éphémère du téléphone prend l\'UNION des coches PC et locales', function () {
