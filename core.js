@@ -1225,7 +1225,7 @@
    * de la carte : elle ne devient pas un ordre de décochage, parce que décocher est un
    * geste du PC.
    */
-  function buildLotCoches(coches, uuidLot, genereLe, source, listeUuid) {
+  function buildLotCoches(coches, uuidLot, genereLe, source, listeUuid, remise) {
     // eslint-disable-next-line no-unused-vars
     var lignes = Object.keys(coches || {}).map(function (uuidArticle) {
       var c = coches[uuidArticle] || {};
@@ -1251,6 +1251,10 @@
       // un ancien PC les ignore et se contente de cocher.
       source: source === 'repas_rapides' ? 'repas_rapides' : 'complete',
       liste_uuid: String(listeUuid || ''),
+      // ⚠️⚠️ **La seule exception à « un lot ne décoche jamais »** (08-10-2026) : Julien a
+      // fait « Tout décocher » ici depuis son dernier envoi. Le PC décoche alors tout avant
+      // d'appliquer ces coches — qui sont, dans ce cas, l'état COMPLET du téléphone.
+      remise_a_zero: !!remise,
       coches: lignes,
     };
   }

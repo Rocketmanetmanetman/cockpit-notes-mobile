@@ -881,6 +881,13 @@
         egal(Core.buildLotCoches({}, 'x', 'q').liste_uuid, '');
       });
 
+      test('« Tout décocher » fait ici part avec l\'envoi suivant, et seulement s\'il a eu lieu', function () {
+        // Le PC décoche TOUT avant d'appliquer un envoi qui porte la remise (08-10-2026).
+        egal(Core.buildLotCoches({}, 'x', 'q', 'complete', 'u', true).remise_a_zero, true);
+        egal(Core.buildLotCoches({}, 'x', 'q', 'complete', 'u').remise_a_zero, false);
+        egal(Core.buildLotCoches({}, 'x', 'q', 'complete', 'u', null).remise_a_zero, false);
+      });
+
       test('les coches du téléphone : la locale l\'emporte sur l\'envoyée', function () {
         var tout = Core.fusionCochesCourses(
           { 'u-a': { quantite: '1', commentaire: '', lot: 'L1' }, 'u-b': { quantite: '', commentaire: '', lot: 'L1' } },

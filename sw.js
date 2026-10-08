@@ -9,7 +9,7 @@
 // copie et la mise à jour ne parvient jamais au téléphone — le piège de développement le
 // plus coûteux de ce genre d'application. `mobile/publier.ps1` refuse de publier tant que
 // cette version n'a pas changé.
-var CACHE = 'cockpit-notes-v24';
+var CACHE = 'cockpit-notes-v25';
 
 var COQUILLE = [
   './',

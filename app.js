@@ -105,6 +105,12 @@
     // l'envoi »). Elle s'affiche tout de suite, PC éteint ou pas. Un fichier du PC plus
     // récent la remplace — c'est ce qui fait remonter les modifications faites là-bas.
     listeTel: null,
+    // ⚠️⚠️ **« Tout décocher » fait ICI, en attente du PC** (08-10-2026 : « pourquoi je ne
+    // peux pas tout décocher sur le téléphone ? »). `null`, ou { lots: [...] } — les envois
+    // qui ont porté la remise. Tant qu'elle est là, les coches reçues du PC sont IGNORÉES à
+    // l'écran (le PC va les perdre), et chaque envoi porte la remise avec l'état complet du
+    // téléphone. Elle s'en va quand le fichier du PC acquitte un de ces envois.
+    remiseCourses: null,
     // Le « pris » de la liste éphémère — local aussi, et il ne part JAMAIS : la liste est
     // jetable, deux vues du même papier n'ont pas à se synchroniser.
     // ⚠️ **Rattaché à UNE liste** (08-10-2026) : { pour: '<uuid de la liste>', articles }.
@@ -1254,6 +1260,32 @@
   // du même papier n'ont pas à se synchroniser.
   // ==========================================================================
 
+  /**
+   * Les articles tels que le téléphone doit les VOIR. D'ordinaire, ceux du fichier du PC.
+   * ⚠️ **Après un « Tout décocher » fait ici et pas encore acquitté par le PC** (08-10-2026),
+   * les coches du PC sont effacées de la vue — quantité, commentaire et lieu compris : le PC
+   * va les perdre au prochain envoi, et la liste du téléphone ne doit pas les reprendre.
+   * Tout ce qui lit une coche du PC passe par ici, jamais par `S.courses.articles`.
+   */
+  function articlesCourses() {
+    var articles = S.courses ? S.courses.articles : [];
+    if (!S.remiseCourses) return articles;
+    return articles.map(function (a) {
+      if (!a.coche) return a;
+      var vierge = {};
+      Object.keys(a).forEach(function (k) { vierge[k] = a[k]; });
+      vierge.coche = false;
+      vierge.quantite = '';
+      vierge.commentaire = '';
+      vierge.coche_enseigne_id = null;
+      return vierge;
+    });
+  }
+
+  function enregistrerRemise() {
+    return Store.ecrireMeta('courses_remise', S.remiseCourses).catch(function () {});
+  }
+
   // Les enseignes de l'instantané — le téléphone ne connaît plus aucun libellé en dur
   // depuis la migration 30 : il affiche ce que `courses.json` lui donne.
   function enseignesCourses() {
@@ -1323,7 +1355,7 @@
   }
 
   function nbCochesCourses() {
-    return (S.courses ? S.courses.articles : []).filter(function (a) {
+    return articlesCourses().filter(function (a) {
       if (S.sourceCourses === 'repas_rapides' && !a.repas_rapide) return false;
       return estCoche(a);
     }).length;
@@ -1417,7 +1449,7 @@
       theme: S.themeCourses,
       enseigne: S.enseigneCourses,
     };
-    var retenus = Core.filtrerCourses(S.courses.articles, filtres);
+    var retenus = Core.filtrerCourses(articlesCourses(), filtres);
     var enseignes = Core.grouperCourses(retenus, S.courses.themes, enseignesCourses());
     var deplie = enseignes.some(function (e) { return !S.replisCourses['e:' + e.cle]; });
 
@@ -1576,9 +1608,9 @@
 
   function blocEnvoiCoches() {
     var locales = Object.keys(S.cochesCourses).length;
-    // « Faites ici » englobe les coches déjà envoyées : elles aussi viennent du téléphone,
-    // et « Tout décocher » les retire aussi.
-    var faitesIci = Object.keys(cochesConnues()).length;
+    // Tout ce qui se voit coché ici — reçu du PC, envoyé, ou fait depuis : « Tout décocher »
+    // retire tout depuis le 08-10-2026.
+    var cochees = articlesCourses().filter(estCoche).length;
     return (
       '<section class="bloc bloc-envoi">' +
       // ⚠️ **UN seul bouton d'envoi** (08-10-2026). Il y en avait deux — « Envoyer mes
@@ -1590,28 +1622,27 @@
       '<p class="explication">Ta liste s\'affiche tout de suite dans <strong>Liste à faire</strong>. ' +
       'Le fichier se télécharge : dépose-le dans le dossier <strong>synchronisation cockpit</strong> ' +
       'de Google Drive, puis sur le PC, onglet Courses : <strong>Synchroniser</strong>. ' +
-      'Un envoi ne décoche jamais rien sur le PC — il ajoute.</p>' +
+      'Un envoi ajoute ses coches à celles du PC — sauf après un « Tout décocher » fait ici.</p>' +
+      (S.remiseCourses && S.remiseCourses.lots.length === 0
+        ? '<p class="indicateur"><strong>Tout est décoché ici.</strong> Le PC décochera tout ' +
+          'lui aussi à ton prochain envoi.</p>'
+        : '') +
       '<button type="button" class="bouton bouton-fort" data-action="courses-envoyer"' +
       (locales === 0 ? ' disabled' : '') + '>' +
       (locales === 0
         ? 'Rien de neuf à envoyer'
         : 'Envoyer au PC (' + locales + (locales === 1 ? ' coche)' : ' coches)')) +
       '</button>' +
-      // ⚠️ **« Tout décocher » ne touche QUE ce qui a été fait ICI** (demande du
-      // 19-08-2026). Il ne peut pas en être autrement : un lot est ADDITIF (§8.2), le
-      // téléphone n'a aucun moyen de dire au PC « décoche ». Le libellé et la confirmation
-      // le disent en toutes lettres, sans quoi Julien croirait avoir vidé sa liste alors
-      // que le PC la garde entière.
-      //
-      // ⚠️ **« Faites ici » et non « posées ici »** : une entrée de `S.cochesCourses` n'est
-      // pas toujours une coche. Préciser une quantité sur un article que le PC a déjà coché
-      // en crée une, sans qu'aucune case n'ait été cochée sur le téléphone. Le compte les
-      // englobe, donc le mot doit les englober aussi.
+      // ⚠️⚠️ **« Tout décocher » retire TOUT depuis le 08-10-2026**, coches reçues du PC
+      // comprises (« pourquoi je ne peux pas tout décocher sur le téléphone ? »). Jusque-là
+      // il ne retirait que ce qui avait été fait ici : un envoi était purement additif, et
+      // le téléphone n'avait aucun moyen de dire au PC « décoche ». Il en a un désormais —
+      // `remise_a_zero` dans l'envoi suivant —, et le PC décoche tout avant d'ajouter.
       '<button type="button" class="bouton bouton-doux" data-action="courses-tout-decocher"' +
-      (faitesIci === 0 ? ' disabled' : '') + '>' +
-      (faitesIci === 0
-        ? 'Rien à retirer ici'
-        : 'Tout décocher (' + faitesIci + (faitesIci === 1 ? ' faite ici)' : ' faites ici)')) +
+      (cochees === 0 ? ' disabled' : '') + '>' +
+      (cochees === 0
+        ? 'Rien à décocher'
+        : 'Tout décocher (' + cochees + (cochees === 1 ? ' article)' : ' articles)')) +
       '</button>' +
       (S.dernierLotCourses
         ? '<p class="indicateur dernier-lot">Dernier fichier : <span class="depot-fichier">' +
@@ -1757,7 +1788,15 @@
         var envoyees = Core.oublierEnvoyees(S.cochesEnvoyees, resultat.lots_recus);
         var arrivees = Object.keys(S.cochesEnvoyees).length - Object.keys(envoyees).length;
         var listeRemplacee = !!S.listeTel && resultat.genere_le >= S.listeTel.genere_le;
+        //  3. une remise à zéro que le PC a LUE se lève : ses coches, désormais, sont celles
+        //     du téléphone. Pas lue, elle reste — et les coches du PC restent cachées.
+        var remiseLevee = !!S.remiseCourses && S.remiseCourses.lots.some(function (l) {
+          return resultat.lots_recus.indexOf(l) !== -1;
+        });
         Store.enregistrerReferentiel('courses', texte)
+          .then(function () {
+            return remiseLevee ? Store.ecrireMeta('courses_remise', null) : null;
+          })
           .then(function () { return Store.ecrireMeta('courses_envoyees', envoyees); })
           .then(function () {
             return listeRemplacee ? Store.ecrireMeta('courses_liste_tel', null) : null;
@@ -1819,13 +1858,19 @@
     var listeUuid = Core.uuid();
     var quand = Core.horodatage(maintenant);
     var liste = Core.buildEphemereTelephone(
-      S.courses.articles, cochesConnues(), S.sourceCourses, listeUuid, quand, enseignesCourses(),
+      articlesCourses(), cochesConnues(), S.sourceCourses, listeUuid, quand, enseignesCourses(),
     );
     var lignes = liste.volets.sur_place.length + liste.volets.drive_en_ligne.length;
+    // ⚠️ **Remise à zéro en attente** : l'envoi porte alors TOUT ce que le téléphone a coché
+    // depuis (envoyé ou non), pas seulement les nouveautés. Le PC décoche tout, puis coche
+    // exactement cela — deux envois successifs donnent donc le même résultat, dans
+    // n'importe quel ordre de lecture.
+    var remise = !!S.remiseCourses;
+    var aEnvoyer = remise ? cochesConnues() : S.cochesCourses;
     S.lotCoursesPret = {
       nom: Core.cochesFilename(lotUuid, maintenant),
       json: Core.documentJson(
-        Core.buildLotCoches(S.cochesCourses, lotUuid, quand, S.sourceCourses, listeUuid),
+        Core.buildLotCoches(aEnvoyer, lotUuid, quand, S.sourceCourses, listeUuid, remise),
       ),
       nb: locales,
       lot: lotUuid,
@@ -1838,7 +1883,10 @@
         locales + (locales === 1 ? ' coche part' : ' coches partent') + ' vers le PC, ' +
         'dans un fichier à déposer dans Google Drive. Ta liste à faire (' + lignes +
         (lignes === 1 ? ' article' : ' articles') + ') s\'affiche tout de suite ici. ' +
-        "Le PC AJOUTERA ces coches à ce qu'il a déjà — il ne décochera rien.",
+        (remise
+          ? 'Tu as tout décoché ici : le PC va d\'abord TOUT décocher, puis cocher ' +
+            'exactement ta liste.'
+          : "Le PC AJOUTERA ces coches à ce qu'il a déjà — il ne décochera rien."),
       libelle: 'Envoyer',
       action: envoyerCochesMaintenant,
     };
@@ -1870,6 +1918,12 @@
     S.listeTel = pret.liste;
     // Une liste neuve : ses « pris » partent de zéro, et ceux d'avant ne la touchent pas.
     S.prisCourses = { pour: pret.liste.uuid, articles: {} };
+    // La remise est PARTIE avec cet envoi : on retient lequel, pour la lever quand le PC
+    // dira l'avoir lu. D'ici là, elle reste — et repart avec les envois suivants.
+    if (S.remiseCourses) {
+      S.remiseCourses.lots.push(pret.lot);
+      enregistrerRemise();
+    }
     enregistrerCoches();
     enregistrerEnvoyees();
     enregistrerListeTel();
@@ -2548,6 +2602,7 @@
       Store.lireMeta('courses_volet_force', { pour: '', articles: {} }),
       Store.lireMeta('courses_envoyees', {}),
       Store.lireMeta('courses_liste_tel', null),
+      Store.lireMeta('courses_remise', null),
     ]).then(function (r) {
       S.notes = r[0];
       if (r[3]) S.dernierLot = r[3];
@@ -2572,6 +2627,7 @@
       if (r[8] && r[8].articles) S.voletForce = r[8];
       S.cochesEnvoyees = r[9] || {};
       S.listeTel = r[10] && r[10].volets ? r[10] : null;
+      S.remiseCourses = r[11] && Array.isArray(r[11].lots) ? r[11] : null;
       // Une coche locale qui vise un article disparu du référentiel est retirée : sans
       // cela, elle repartirait dans chaque lot pour être ignorée à chaque fois.
       if (S.courses) {
@@ -2942,7 +2998,7 @@
       render();
     } else if (action === 'courses-cocher') {
       var uuidA = el.dataset.cible;
-      var articleC = S.courses.articles.filter(function (a) { return a.uuid === uuidA; })[0];
+      var articleC = articlesCourses().filter(function (a) { return a.uuid === uuidA; })[0];
       if (!articleC) return;
       // ⚠️ **Cocher n'ouvre PLUS la saisie** (demande du 19-08-2026, PC et téléphone :
       // « je ne veux pas que l'article change sa hauteur quand je clique dessus »). La ligne
@@ -2991,31 +3047,28 @@
       enregistrerPris();
       render();
     } else if (action === 'courses-tout-decocher') {
-      // Les coches faites ici ET celles déjà envoyées : toutes viennent du téléphone.
-      var combien = Object.keys(cochesConnues()).length;
+      // TOUT ce qui se voit coché — reçu du PC, envoyé, ou fait ici (08-10-2026).
+      var combien = articlesCourses().filter(estCoche).length;
       if (combien === 0) return;
       S.confirmation = {
-        titre: combien === 1 ? 'Retirer ma coche ?' : 'Retirer mes ' + combien + ' coches ?',
+        titre: 'Tout décocher ?',
         texte:
-          'Cela efface les coches faites ICI, sur le téléphone — envoyées ou non —, avec ' +
-          'leurs quantités, commentaires et enseignes. Ce que le PC a reçu ou coché de son ' +
-          'côté RESTE coché : le téléphone ne sait pas décocher à distance, seul le Cockpit ' +
-          'le peut. La liste à faire, elle, ne bouge pas.' +
-          // ⚠️ Un fichier déjà fabriqué vit sa vie : il est dans les Téléchargements, ou
-          // déjà dans Drive, et le PC l'appliquera — additivement — le jour où il le lira.
-          // Le taire ferait croire à un « annuler » qui n'en est pas un.
-          (S.dernierLotCourses
-            ? ' Attention : le fichier « ' + S.dernierLotCourses.nom + ' » est déjà fabriqué. ' +
-              'Si tu le déposes dans Drive, ses coches reviendront.'
-            : ''),
+          combien + (combien === 1 ? ' article coché sera décoché' : ' articles cochés seront décochés') +
+          ' ici, avec leurs quantités, commentaires et enseignes. Le PC décochera tout lui aussi ' +
+          'à ton prochain « Envoyer au PC », avant d\'ajouter tes nouvelles coches. ' +
+          'La liste à faire, elle, ne bouge pas.',
         libelle: 'Tout décocher',
         action: function () {
           S.cochesCourses = {};
           S.cochesEnvoyees = {};
           S.saisieCourses = null;
+          // Une remise NEUVE : l'envoi qui la portera n'existe pas encore. Une remise
+          // précédente déjà partie est remplacée — la nouvelle repartira avec l'état d'ici.
+          S.remiseCourses = { lots: [] };
           enregistrerCoches();
           enregistrerEnvoyees();
-          signaler(combien + (combien === 1 ? ' coche retirée.' : ' coches retirées.'));
+          enregistrerRemise();
+          signaler(combien + (combien === 1 ? ' article décoché.' : ' articles décochés.'));
           render();
         },
       };
