@@ -1653,7 +1653,10 @@
       '</section>' +
       '<section class="bloc">' +
       '<h2 class="titre-bloc">Recevoir du PC</h2>' +
-      '<p class="explication">Seulement si tu as changé quelque chose sur le PC. Choisis ' +
+      // ⚠️ Le pendant EXACT du bouton du PC « Envoyer vers le téléphone » (08-10-2026) : les
+      // deux noms se répondent, et ce texte nomme l'autre, pour qu'on sache d'où ça part.
+      '<p class="explication">Après <strong>Envoyer vers le téléphone</strong> sur le PC : ta ' +
+      'liste à faire, tes coches et le référentiel se mettent à jour ici. Choisis ' +
       '<strong>' + ech(Core.NOM_FICHIER_PC) + '</strong> dans le dossier synchronisation cockpit : ' +
       'c\'est le seul, il est toujours à jour.</p>' +
       '<p class="indicateur">Dernier fichier reçu : écrit par le PC le ' +
